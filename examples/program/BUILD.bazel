@@ -1,0 +1,9 @@
+load("//st:defs.bzl", "st_binary")
+
+# A PROGRAM (the cyclically-executed PLC POU, with persistent state across
+# calls) as an st_binary's main: st_binary generates the FUNCTION main entry
+# point that instantiates and calls it.
+st_binary(
+    name = "program_app",
+    main = "st_cycle.st",
+)

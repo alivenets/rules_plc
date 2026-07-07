@@ -1,0 +1,19 @@
+diff --git a/crate_universe/extensions.bzl b/crate_universe/extensions.bzl
+index bc84f51f5..97ac9ed6e 100644
+--- a/crate_universe/extensions.bzl
++++ b/crate_universe/extensions.bzl
+@@ -1039,11 +1039,11 @@ def _crate_impl(module_ctx):
+ 
+             replacement = annotation_dict.pop("override_target_proc_macro")
+             if replacement:
+-                annotation_dict["override_targets"]["proc_macro"] = str(replacement)
++                annotation_dict["override_targets"]["proc-macro"] = str(replacement)
+ 
+             replacement = annotation_dict.pop("override_target_build_script")
+             if replacement:
+-                annotation_dict["override_targets"]["build_script"] = str(replacement)
++                annotation_dict["override_targets"]["custom-build"] = str(replacement)
+ 
+             replacement = annotation_dict.pop("override_target_bin")
+             if replacement:
+

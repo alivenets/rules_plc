@@ -1,0 +1,47 @@
+load("//st:defs.bzl", "st_binary", "st_library", "st_test")
+load(":rules_test.bzl", "rules_test_suite")
+
+# Regression coverage for the ST rules themselves (hdrs propagation, transitive
+# deps), as opposed to examples/ which demonstrates typical usage.
+
+# hdrs: a TYPE declared in a .dut header, with no implementation of its own,
+# must be visible both to the owning library's own srcs and, re-exported, to
+# its dependents.
+st_library(
+    name = "point_lib",
+    srcs = ["point_lib.st"],
+    hdrs = ["point_types.dut"],
+)
+
+st_test(
+    name = "hdrs_test",
+    main = "hdrs_test.st",
+    deps = [":point_lib"],
+)
+
+# Transitive deps: st_library A -> B -> C, with the binary only naming the
+# top of the chain, must still link and expose symbols from every level.
+st_library(
+    name = "leaf",
+    srcs = ["leaf.st"],
+)
+
+st_library(
+    name = "middle",
+    srcs = ["middle.st"],
+    deps = [":leaf"],
+)
+
+st_library(
+    name = "top",
+    srcs = ["top.st"],
+    deps = [":middle"],
+)
+
+st_test(
+    name = "transitive_deps_test",
+    main = "transitive_deps_test.st",
+    deps = [":top"],
+)
+
+rules_test_suite(name = "rules_test")

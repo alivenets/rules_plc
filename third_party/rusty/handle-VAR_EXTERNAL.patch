@@ -1,0 +1,317 @@
+diff --git a/compiler/plc_driver/src/tests/external_files.rs b/compiler/plc_driver/src/tests/external_files.rs
+index e2463d3d45..baf18e7ad4 100644
+--- a/compiler/plc_driver/src/tests/external_files.rs
++++ b/compiler/plc_driver/src/tests/external_files.rs
+@@ -62,6 +62,37 @@ fn external_file_global_var() {
+     filtered_assert_snapshot!(results.join("\n"));
+ }
+ 
++#[test]
++fn external_file_global_function_block_var_referenced_via_var_external() {
++    let prog = SourceCode::new(
++        "
++    FUNCTION main : DINT
++    VAR_EXTERNAL
++        fb_instance : MyFb;
++    END_VAR
++        fb_instance();
++        main := 0;
++    END_FUNCTION
++    ",
++        "main.st",
++    );
++
++    let ext = SourceCode::new(
++        "
++    FUNCTION_BLOCK MyFb
++    END_FUNCTION_BLOCK
++
++    VAR_GLOBAL
++        fb_instance : MyFb;
++    END_VAR
++    ",
++        "external.st",
++    );
++
++    let results = compile_to_string(vec![prog], vec![ext], None, DebugLevel::None).unwrap();
++    filtered_assert_snapshot!(results.join("\n"));
++}
++
+ #[test]
+ //TODO: is this test redundant? I think validation should catch this already and it should not land
+ //in codegen
+diff --git a/compiler/plc_lowering/src/initializer.rs b/compiler/plc_lowering/src/initializer.rs
+index cfb73a9ac7..b1e273cc7c 100644
+--- a/compiler/plc_lowering/src/initializer.rs
++++ b/compiler/plc_lowering/src/initializer.rs
+@@ -198,6 +198,10 @@ impl AstVisitor for Initializer {
+         if block.constant {
+             return;
+         }
++        // VAR_EXTERNAL variables are owned and initialized by the declaring module; skip them.
++        if block.kind == VariableBlockType::External {
++            return;
++        }
+         // Included global variables are always initialized by their owning library.
+         // External globals are initialized by their owning module unless
+         // `generate_externals` is set.
+diff --git a/src/builtins.rs b/src/builtins.rs
+index 46f8543f30..00d2e0bc9e 100644
+--- a/src/builtins.rs
++++ b/src/builtins.rs
+@@ -1,6 +1,6 @@
+ use inkwell::{
+     basic_block::BasicBlock,
+-    types::BasicType,
++    types::{BasicType, BasicTypeEnum},
+     values::{BasicValue, IntValue},
+ };
+ use lazy_static::lazy_static;
+@@ -304,8 +304,16 @@ lazy_static! {
+                             .get_name();
+ 
+                         // return size of llvm type
+-                        let size = generator.llvm_index
+-                            .get_associated_type(type_name)?.size_of()
++                        let llvm_type = generator.llvm_index.get_associated_type(type_name)?;
++                        if contains_scalable_vector(llvm_type) {
++                            return Err(Diagnostic::codegen_error(
++                                "Parameter type has no static size.",
++                                location,
++                            )
++                            .into());
++                        }
++                        let size = llvm_type
++                            .size_of()
+                             .ok_or_else(|| Diagnostic::codegen_error("Parameter type is not sized.", location))?
+                             .as_basic_value_enum();
+                             Ok(ExpressionValue::RValue(size))
+@@ -684,6 +692,17 @@ lazy_static! {
+     ]);
+ }
+ 
++fn contains_scalable_vector(ty: BasicTypeEnum<'_>) -> bool {
++    match ty {
++        BasicTypeEnum::ScalableVectorType(_) => true,
++        BasicTypeEnum::ArrayType(array) => contains_scalable_vector(array.get_element_type()),
++        BasicTypeEnum::StructType(strct) => {
++            strct.get_field_types().into_iter().any(contains_scalable_vector)
++        }
++        _ => false,
++    }
++}
++
+ fn validate_types(
+     validator: &mut Validator,
+     parameters: &Option<&AstNode>,
+diff --git a/src/codegen/generators/data_type_generator.rs b/src/codegen/generators/data_type_generator.rs
+index dd33d46e0c..33f6d4b9f2 100644
+--- a/src/codegen/generators/data_type_generator.rs
++++ b/src/codegen/generators/data_type_generator.rs
+@@ -37,6 +37,7 @@ use std::collections::VecDeque;
+ use super::ADDRESS_SPACE_GENERIC;
+ use super::{expression_generator::ExpressionCodeGenerator, llvm::Llvm};
+ 
++
+ pub struct DataTypeGenerator<'ink, 'b> {
+     llvm: &'b Llvm<'ink>,
+     debug: &'b mut DebugBuilderEnum<'ink>,
+@@ -314,7 +315,7 @@ impl<'ink> DataTypeGenerator<'ink, '_> {
+             DataTypeInformation::Struct { source, members, .. } => {
+                 let member_names_and_initializers = members
+                     .iter()
+-                    .filter(|it| it.get_variable_type() != VariableType::Temp)
++                    .filter(|it| it.get_variable_type() != VariableType::Temp && !it.is_var_external())
+                     .map(|it| {
+                         self.generate_initial_value_for_variable(it).and_then(|v| match v {
+                             Some(v) => Ok((it.get_qualified_name(), v)),
+@@ -349,7 +350,7 @@ impl<'ink> DataTypeGenerator<'ink, '_> {
+                 // member initialization at runtime, so zeroinitializer + constructor is correct.
+                 let has_oversized_default_array = members
+                     .iter()
+-                    .filter(|it| it.get_variable_type() != VariableType::Temp)
++                    .filter(|it| it.get_variable_type() != VariableType::Temp && !it.is_var_external())
+                     .filter(|it| it.initial_value.is_none())
+                     .any(|it| {
+                         self.types_index
+diff --git a/src/codegen/generators/llvm.rs b/src/codegen/generators/llvm.rs
+index a715f551e8..610da535a6 100644
+--- a/src/codegen/generators/llvm.rs
++++ b/src/codegen/generators/llvm.rs
+@@ -467,14 +467,14 @@ impl<'a> Llvm<'a> {
+         let (qualified_name, type_name, location) = variable;
+         let variable_llvm_type = llvm_index.get_associated_type(type_name)?;
+ 
++        let variable_data_type = index.get_effective_type_or_void_by_name(type_name);
++        let v_type_info = variable_data_type.get_type_information();
++
+         let type_size = variable_llvm_type
+             .size_of()
+             .ok_or_else(|| Diagnostic::codegen_error("Couldn't determine type size", location));
+ 
+         // initialize the variable with the initial_value
+-        let variable_data_type = index.get_effective_type_or_void_by_name(type_name);
+-
+-        let v_type_info = variable_data_type.get_type_information();
+ 
+         const DEFAULT_ALIGNMENT: u32 = 1;
+         let initializer_statement = initializer_statement.and_then(|stmt| {
+@@ -556,3 +556,4 @@ impl<'a> Llvm<'a> {
+         Ok(())
+     }
+ }
++
+diff --git a/src/codegen/generators/pou_generator.rs b/src/codegen/generators/pou_generator.rs
+index 6794631063..ea30c8551b 100644
+--- a/src/codegen/generators/pou_generator.rs
++++ b/src/codegen/generators/pou_generator.rs
+@@ -999,4 +999,5 @@ impl<'ink, 'cg> PouGenerator<'ink, 'cg> {
+             Ok(None)
+         }
+     }
++
+ }
+diff --git a/src/codegen/generators/variable_generator.rs b/src/codegen/generators/variable_generator.rs
+index 42973e0cb7..6b2b4b2f15 100644
+--- a/src/codegen/generators/variable_generator.rs
++++ b/src/codegen/generators/variable_generator.rs
+@@ -7,8 +7,7 @@ use crate::{
+     resolver::{AnnotationMap, AstAnnotations, Dependency},
+     OnlineChange,
+ };
+-use inkwell::{module::Module, values::GlobalValue};
+-use plc_ast::ast::LinkageType;
++use inkwell::{module::Module, values::GlobalValue};use plc_ast::ast::LinkageType;
+ use plc_diagnostics::diagnostics::Diagnostic;
+ use section_mangler::SectionMangler;
+ 
+@@ -201,4 +200,5 @@ impl<'ctx, 'b> VariableGenerator<'ctx, 'b> {
+ 
+         Ok(global_ir_variable)
+     }
++
+ }
+diff --git a/src/index.rs b/src/index.rs
+index 9b674960b0..bcfe7d80f8 100644
+--- a/src/index.rs
++++ b/src/index.rs
+@@ -1295,6 +1295,12 @@ pub struct Index {
+     /// All global variables
+     global_variables: SymbolMap<String, VariableIndexEntry>,
+ 
++    /// Shadow entries for VAR_EXTERNAL declarations: keyed by bare variable name.
++    /// Used as a last-resort fallback in `find_qualified_global_variable` when the
++    /// matching VAR_GLOBAL is not present in the index (e.g. the global lives in an
++    /// external library that is only available at link time).
++    var_external_declarations: FxIndexMap<String, VariableIndexEntry>,
++
+     /// All struct initializers
+     global_initializers: SymbolMap<String, VariableIndexEntry>,
+ 
+@@ -1461,6 +1467,11 @@ impl Index {
+ 
+         self.config_variables.extend(other.config_variables);
+ 
++        // VAR_EXTERNAL shadow globals: import only entries not already present
++        for (name, entry) in other.var_external_declarations {
++            self.var_external_declarations.entry(name).or_insert(entry);
++        }
++
+         //Constant expressions are intentionally not imported
+         // self.constant_expressions.import(other.constant_expressions)
+     }
+@@ -1556,6 +1567,9 @@ impl Index {
+                     it.first()
+                 }
+             })
++            // Fallback: a VAR_EXTERNAL declaration in any POU can serve as an extern
++            // global reference when the actual VAR_GLOBAL is not in the current index.
++            .or_else(|| self.var_external_declarations.get(&name.to_lowercase()))
+     }
+ 
+     /// returns the `VariableIndexEntry` of the global variable with the given name
+@@ -2171,6 +2185,14 @@ impl Index {
+         self.global_variables.insert(name.to_lowercase(), variable);
+     }
+ 
++    /// Registers a VAR_EXTERNAL declaration as a shadow extern global. Used by the POU
++    /// indexer so that references to the external variable resolve when the actual
++    /// VAR_GLOBAL is not present in the compiled index (e.g. external library).
++    /// Only the first declaration for a given name is kept — later duplicates are ignored.
++    pub fn register_var_external_declaration(&mut self, name: &str, variable: VariableIndexEntry) {
++        self.var_external_declarations.entry(name.to_lowercase()).or_insert(variable);
++    }
++
+     pub fn register_global_initializer(&mut self, name: &str, variable: VariableIndexEntry) {
+         self.global_initializers.insert(name.to_lowercase(), variable);
+     }
+diff --git a/src/index/indexer/pou_indexer.rs b/src/index/indexer/pou_indexer.rs
+index e59ab10f8b..0416520a67 100644
+--- a/src/index/indexer/pou_indexer.rs
++++ b/src/index/indexer/pou_indexer.rs
+@@ -2,6 +2,7 @@ use plc_ast::ast::{
+     self, ArgumentProperty, DataTypeDeclaration, DeclarationKind, Pou, PouType, PropertyKind, TypeNature,
+     VariableBlock, VariableBlockType,
+ };
++use plc_ast::ast::LinkageType;
+ use plc_source::source_location::SourceLocation;
+ use plc_util::convention::internal_type_name;
+ 
+@@ -262,6 +263,22 @@ impl<'i> PouIndexer<'i> {
+                     var.location.clone(),
+                     count,
+                 );
++
++                // Also register a shadow extern-global entry for VAR_EXTERNAL members so
++                // that references to the variable resolve even when the corresponding
++                // VAR_GLOBAL is only available at link time (e.g. external library).
++                if matches!(block.kind, VariableBlockType::External) {
++                    let shadow = VariableIndexEntry::create_global(
++                        &var.name,
++                        &var.name,
++                        &type_name,
++                        var.location.clone(),
++                    )
++                    .set_constant(block.constant)
++                    .set_linkage(LinkageType::External);
++                    self.index.register_var_external_declaration(&var.name, shadow);
++                }
++
+                 members.push(entry);
+                 count += 1;
+             }
+diff --git a/src/validation/tests/variable_validation_tests.rs b/src/validation/tests/variable_validation_tests.rs
+index 6eea7a1a9b..6d84d8f1c4 100644
+--- a/src/validation/tests/variable_validation_tests.rs
++++ b/src/validation/tests/variable_validation_tests.rs
+@@ -1399,7 +1399,7 @@ fn var_external_with_initializer_does_not_err() {
+ }
+ 
+ #[test]
+-fn using_var_external_variable_without_matching_global_will_not_resolve() {
++fn using_var_external_variable_without_matching_global_resolves_as_extern() {
+     let diagnostics = parse_and_validate_buffered(
+         r#"
+         FUNCTION_BLOCK foo_fb
+@@ -1412,18 +1412,15 @@ fn using_var_external_variable_without_matching_global_will_not_resolve() {
+         "#,
+     );
+ 
++    // VAR_EXTERNAL now registers a shadow extern-global entry, so the reference to `b`
++    // resolves even without an explicit VAR_GLOBAL declaration. Only the E106 warning
++    // about VAR_EXTERNAL having no semantic effect remains.
+     assert_snapshot!(diagnostics, @r"
+     warning[E106]: VAR_EXTERNAL blocks have no effect
+       ┌─ <internal>:3:13
+       │
+     3 │             VAR_EXTERNAL
+       │             ^^^^^^^^^^^^ VAR_EXTERNAL blocks have no effect
+-
+-    error[E048]: Could not resolve reference to b
+-      ┌─ <internal>:7:13
+-      │
+-    7 │             b := FALSE;
+-      │             ^ Could not resolve reference to b
+     ");
+ }
+ 

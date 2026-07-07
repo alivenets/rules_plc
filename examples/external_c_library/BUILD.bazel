@@ -1,0 +1,22 @@
+load("//st:defs.bzl", "st_library", "st_test")
+
+# fast_math.st declares fast_double as {external}: no ST implementation, just
+# the signature. fast_math_c provides the real, native implementation, linked
+# in via c_deps.
+cc_library(
+    name = "fast_math_c",
+    srcs = ["fast_math.c"],
+)
+
+st_library(
+    name = "fast_math",
+    srcs = ["fast_math.st"],
+    c_deps = [":fast_math_c"],
+    visibility = ["//visibility:public"],
+)
+
+st_test(
+    name = "fast_math_test",
+    main = "fast_math_test.st",
+    deps = [":fast_math"],
+)
