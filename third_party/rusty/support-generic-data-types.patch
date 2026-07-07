@@ -1,0 +1,326 @@
+diff --git a/src/index/tests/index_tests.rs b/src/index/tests/index_tests.rs
+index 357dd2ea70..216bdd4fa9 100644
+--- a/src/index/tests/index_tests.rs
++++ b/src/index/tests/index_tests.rs
+@@ -1194,6 +1194,63 @@ fn generic_datatypes_indexed() {
+     );
+ }
+ 
++#[test]
++fn any_datatypes_can_be_used_in_variable_declarations() {
++    let source = r#"
++        FUNCTION foo : DINT
++        VAR_INPUT
++            a : ANY;
++            d : ANY_NUM;
++            e : ANY_REAL;
++            f : ANY_SIMPLE;
++            b : ANY_BIT;
++            c : ANY_DUT;
++        END_VAR
++        END_FUNCTION
++    "#;
++
++    let (_, index) = index(source);
++
++    let a = index.find_member("foo", "a").unwrap();
++    let d = index.find_member("foo", "d").unwrap();
++    let e = index.find_member("foo", "e").unwrap();
++    let f = index.find_member("foo", "f").unwrap();
++    let b = index.find_member("foo", "b").unwrap();
++    let c = index.find_member("foo", "c").unwrap();
++
++    assert_eq!(a.get_type_name(), "ANY");
++    assert_eq!(d.get_type_name(), "ANY_NUM");
++    assert_eq!(e.get_type_name(), "ANY_REAL");
++    assert_eq!(f.get_type_name(), "ANY_SIMPLE");
++    assert_eq!(b.get_type_name(), "ANY_BIT");
++    assert_eq!(c.get_type_name(), "ANY_DUT");
++
++    assert!(matches!(
++        index.find_effective_type_info("ANY"),
++        Some(DataTypeInformation::Pointer { inner_type_name, .. }) if inner_type_name == "__VOID"
++    ));
++    assert!(matches!(
++        index.find_effective_type_info("ANY_NUM"),
++        Some(DataTypeInformation::Pointer { inner_type_name, .. }) if inner_type_name == "__VOID"
++    ));
++    assert!(matches!(
++        index.find_effective_type_info("ANY_REAL"),
++        Some(DataTypeInformation::Pointer { inner_type_name, .. }) if inner_type_name == "__VOID"
++    ));
++    assert!(matches!(
++        index.find_effective_type_info("ANY_SIMPLE"),
++        Some(DataTypeInformation::Pointer { inner_type_name, .. }) if inner_type_name == "__VOID"
++    ));
++    assert!(matches!(
++        index.find_effective_type_info("ANY_BIT"),
++        Some(DataTypeInformation::Pointer { inner_type_name, .. }) if inner_type_name == "__VOID"
++    ));
++    assert!(matches!(
++        index.find_effective_type_info("ANY_DUT"),
++        Some(DataTypeInformation::Pointer { inner_type_name, .. }) if inner_type_name == "__VOID"
++    ));
++}
++
+ #[test]
+ fn function_name_equals_return_type() {
+     // GIVEN function with the same name as the return type
+diff --git a/src/parser.rs b/src/parser.rs
+index af6df7bbb0..d1cf4829fa 100644
+--- a/src/parser.rs
++++ b/src/parser.rs
+@@ -559,7 +559,9 @@ fn parse_type_nature(lexer: &mut ParseSession, nature: &str) -> TypeNature {
+     match nature {
+         "ANY" => TypeNature::Any,
+         "ANY_DERIVED" => TypeNature::Derived,
++        "ANY_DUT" => TypeNature::Derived,
+         "ANY_ELEMENTARY" => TypeNature::Elementary,
++        "ANY_SIMPLE" => TypeNature::Elementary,
+         "ANY_MAGNITUDE" => TypeNature::Magnitude,
+         "ANY_NUM" => TypeNature::Num,
+         "ANY_REAL" => TypeNature::Real,
+diff --git a/src/parser/tests/parse_generics.rs b/src/parser/tests/parse_generics.rs
+index a022660801..9ed340fdd0 100644
+--- a/src/parser/tests/parse_generics.rs
++++ b/src/parser/tests/parse_generics.rs
+@@ -21,7 +21,9 @@ fn generic_markers_on_pou_added() {
+         M : ANY_STRING,
+         N : ANY_CHAR,
+         O : ANY_DATE,
+-        P : __ANY_VLA> : INT END_FUNCTION";
++        P : __ANY_VLA,
++        Q : ANY_DUT,
++        R : ANY_SIMPLE> : INT END_FUNCTION";
+     let (parse_result, _) = parse(src);
+     let function = &parse_result.pous[0];
+     //Make sure the function has the generic parametes T: ANY, R : ANY_NUMBER
+@@ -59,6 +61,10 @@ fn generic_markers_on_pou_added() {
+     assert_eq!(&GenericBinding { name: "O".into(), nature: TypeNature::Date }, t);
+     let t = &generics[15];
+     assert_eq!(&GenericBinding { name: "P".into(), nature: TypeNature::__VLA }, t);
++    let t = &generics[16];
++    assert_eq!(&GenericBinding { name: "Q".into(), nature: TypeNature::Derived }, t);
++    let t = &generics[17];
++    assert_eq!(&GenericBinding { name: "R".into(), nature: TypeNature::Elementary }, t);
+ }
+ 
+ #[test]
+diff --git a/src/typesystem.rs b/src/typesystem.rs
+index e15a167e6a..126eb77d07 100644
+--- a/src/typesystem.rs
++++ b/src/typesystem.rs
+@@ -93,6 +93,12 @@ pub const WCHAR_TYPE: &str = "WCHAR";
+ pub const VOID_TYPE: &str = "VOID";
+ pub const VOID_INTERNAL_NAME: &str = "__VOID";
+ pub const __VLA_TYPE: &str = "__VLA";
++pub const ANY_TYPE: &str = "ANY";
++pub const ANY_NUM_TYPE: &str = "ANY_NUM";
++pub const ANY_REAL_TYPE: &str = "ANY_REAL";
++pub const ANY_SIMPLE_TYPE: &str = "ANY_SIMPLE";
++pub const ANY_BIT_TYPE: &str = "ANY_BIT";
++pub const ANY_DUT_TYPE: &str = "ANY_DUT";
+ 
+ #[cfg(test)]
+ mod tests;
+@@ -552,6 +558,12 @@ impl DataTypeInformation {
+         matches!(self, DataTypeInformation::Pointer { .. })
+     }
+ 
++    /// Returns true if this is an untyped void pointer (`POINTER TO __VOID`), which
++    /// is used to represent `ANY`, `ANY_BIT`, `ANY_DUT`, etc. at the type-system level.
++    pub fn is_void_pointer(&self) -> bool {
++        matches!(self, DataTypeInformation::Pointer { inner_type_name, .. } if inner_type_name == VOID_INTERNAL_NAME)
++    }
++
+     pub fn is_type_safe_pointer(&self) -> bool {
+         matches!(self, DataTypeInformation::Pointer { type_safe: true, .. })
+     }
+@@ -995,6 +1007,90 @@ pub fn get_builtin_types() -> Vec<DataType> {
+             location: SourceLocation::internal(),
+             linkage: LinkageType::BuiltIn,
+         },
++        DataType {
++            name: ANY_TYPE.into(),
++            initial_value: None,
++            information: DataTypeInformation::Pointer {
++                name: ANY_TYPE.into(),
++                inner_type_name: VOID_INTERNAL_NAME.into(),
++                auto_deref: None,
++                type_safe: false,
++                is_function: false,
++            },
++            nature: TypeNature::Any,
++            location: SourceLocation::internal(),
++            linkage: LinkageType::BuiltIn,
++        },
++        DataType {
++            name: ANY_NUM_TYPE.into(),
++            initial_value: None,
++            information: DataTypeInformation::Pointer {
++                name: ANY_NUM_TYPE.into(),
++                inner_type_name: VOID_INTERNAL_NAME.into(),
++                auto_deref: None,
++                type_safe: false,
++                is_function: false,
++            },
++            nature: TypeNature::Num,
++            location: SourceLocation::internal(),
++            linkage: LinkageType::BuiltIn,
++        },
++        DataType {
++            name: ANY_REAL_TYPE.into(),
++            initial_value: None,
++            information: DataTypeInformation::Pointer {
++                name: ANY_REAL_TYPE.into(),
++                inner_type_name: VOID_INTERNAL_NAME.into(),
++                auto_deref: None,
++                type_safe: false,
++                is_function: false,
++            },
++            nature: TypeNature::Real,
++            location: SourceLocation::internal(),
++            linkage: LinkageType::BuiltIn,
++        },
++        DataType {
++            name: ANY_SIMPLE_TYPE.into(),
++            initial_value: None,
++            information: DataTypeInformation::Pointer {
++                name: ANY_SIMPLE_TYPE.into(),
++                inner_type_name: VOID_INTERNAL_NAME.into(),
++                auto_deref: None,
++                type_safe: false,
++                is_function: false,
++            },
++            nature: TypeNature::Elementary,
++            location: SourceLocation::internal(),
++            linkage: LinkageType::BuiltIn,
++        },
++        DataType {
++            name: ANY_BIT_TYPE.into(),
++            initial_value: None,
++            information: DataTypeInformation::Pointer {
++                name: ANY_BIT_TYPE.into(),
++                inner_type_name: VOID_INTERNAL_NAME.into(),
++                auto_deref: None,
++                type_safe: false,
++                is_function: false,
++            },
++            nature: TypeNature::Bit,
++            location: SourceLocation::internal(),
++            linkage: LinkageType::BuiltIn,
++        },
++        DataType {
++            name: ANY_DUT_TYPE.into(),
++            initial_value: None,
++            information: DataTypeInformation::Pointer {
++                name: ANY_DUT_TYPE.into(),
++                inner_type_name: VOID_INTERNAL_NAME.into(),
++                auto_deref: None,
++                type_safe: false,
++                is_function: false,
++            },
++            nature: TypeNature::Derived,
++            location: SourceLocation::internal(),
++            linkage: LinkageType::BuiltIn,
++        },
+         DataType {
+             name: "__VLA".into(),
+             initial_value: None,
+diff --git a/src/typesystem/tests.rs b/src/typesystem/tests.rs
+index f973ac079d..cc303a48b8 100644
+--- a/src/typesystem/tests.rs
++++ b/src/typesystem/tests.rs
+@@ -8,7 +8,8 @@ use crate::{
+         self, get_equals_function_name_for, get_signed_type, Dimension, BOOL_TYPE, BYTE_TYPE, CHAR_TYPE,
+         DATE_AND_TIME_TYPE, DATE_TYPE, DINT_TYPE, DWORD_TYPE, INT_TYPE, LINT_TYPE, LREAL_TYPE, LWORD_TYPE,
+         REAL_TYPE, SINT_TYPE, STRING_TYPE, TIME_OF_DAY_TYPE, TIME_TYPE, UDINT_TYPE, UINT_TYPE, ULINT_TYPE,
+-        USINT_TYPE, WCHAR_TYPE, WORD_TYPE, WSTRING_TYPE,
++        USINT_TYPE, WCHAR_TYPE, WORD_TYPE, WSTRING_TYPE, ANY_BIT_TYPE, ANY_DUT_TYPE, ANY_NUM_TYPE,
++        ANY_REAL_TYPE, ANY_SIMPLE_TYPE, ANY_TYPE, VOID_INTERNAL_NAME,
+     },
+ };
+ 
+@@ -527,6 +528,50 @@ fn any_date_type_test() {
+     assert!(tod.has_nature(TypeNature::Any, &index));
+ }
+ 
++#[test]
++fn any_data_types_are_void_pointers() {
++    let index = get_index();
++
++    let any = index.get_type_or_panic(ANY_TYPE);
++    let any_num = index.get_type_or_panic(ANY_NUM_TYPE);
++    let any_real = index.get_type_or_panic(ANY_REAL_TYPE);
++    let any_simple = index.get_type_or_panic(ANY_SIMPLE_TYPE);
++    let any_bit = index.get_type_or_panic(ANY_BIT_TYPE);
++    let any_dut = index.get_type_or_panic(ANY_DUT_TYPE);
++
++    assert!(matches!(
++        any.get_type_information(),
++        typesystem::DataTypeInformation::Pointer { inner_type_name, .. } if inner_type_name == VOID_INTERNAL_NAME
++    ));
++    assert!(matches!(
++        any_num.get_type_information(),
++        typesystem::DataTypeInformation::Pointer { inner_type_name, .. } if inner_type_name == VOID_INTERNAL_NAME
++    ));
++    assert!(matches!(
++        any_real.get_type_information(),
++        typesystem::DataTypeInformation::Pointer { inner_type_name, .. } if inner_type_name == VOID_INTERNAL_NAME
++    ));
++    assert!(matches!(
++        any_simple.get_type_information(),
++        typesystem::DataTypeInformation::Pointer { inner_type_name, .. } if inner_type_name == VOID_INTERNAL_NAME
++    ));
++    assert!(matches!(
++        any_bit.get_type_information(),
++        typesystem::DataTypeInformation::Pointer { inner_type_name, .. } if inner_type_name == VOID_INTERNAL_NAME
++    ));
++    assert!(matches!(
++        any_dut.get_type_information(),
++        typesystem::DataTypeInformation::Pointer { inner_type_name, .. } if inner_type_name == VOID_INTERNAL_NAME
++    ));
++
++    assert!(any.has_nature(TypeNature::Any, &index));
++    assert!(any_num.has_nature(TypeNature::Num, &index));
++    assert!(any_real.has_nature(TypeNature::Real, &index));
++    assert!(any_simple.has_nature(TypeNature::Elementary, &index));
++    assert!(any_bit.has_nature(TypeNature::Bit, &index));
++    assert!(any_dut.has_nature(TypeNature::Derived, &index));
++}
++
+ #[test]
+ fn array_size_single_dim_tests() {
+     let index = get_index();
+diff --git a/src/validation/statement.rs b/src/validation/statement.rs
+index ac70e4670e..73dcd46ac8 100644
+--- a/src/validation/statement.rs
++++ b/src/validation/statement.rs
+@@ -1070,6 +1070,11 @@ pub fn validate_assignment_mismatch<T>(
+         context.index.find_elementary_pointer_type(type_rhs.get_type_information()),
+     );
+ 
++    // A void pointer (ANY, ANY_DUT, ANY_BIT, …) accepts any type — no mismatch possible.
++    if type_lhs.get_type_information().is_void_pointer() {
++        return;
++    }
++
+     // We might be dealing with an `ADR` or `REF` call on a `POINTER TO` variable
+     if (type_lhs.is_pointer() && !type_lhs.is_type_safe_pointer())
+         && (type_rhs.is_pointer() || type_info_rhs.is_ptr_sized_int())
+@@ -1854,6 +1859,7 @@ fn is_invalid_pointer_assignment(
+     }
+     //check if Datatype can hold a Pointer (u64)
+     else if (right_type.is_pointer() && !right_type.is_auto_deref())
++        && !right_type.is_void_pointer()
+         && !left_type.is_pointer()
+         && left_type.get_size_in_bits(index).unwrap_or_default() < POINTER_SIZE
+     {
+@@ -1870,6 +1876,7 @@ fn is_invalid_pointer_assignment(
+     }
+     //check if size allocated to Pointer is standart pointer size (u64)
+     else if left_type.is_pointer()
++        && !left_type.is_void_pointer()
+         && !right_type.is_pointer()
+         && right_type.get_size_in_bits(index).unwrap_or_default() < POINTER_SIZE
+     {

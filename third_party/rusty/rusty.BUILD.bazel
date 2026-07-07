@@ -1,0 +1,262 @@
+"""Build file for the rusty (plc) compiler, built from source.
+
+Mirrors the crate/target graph of //third_party/rusty_src:BUILD.rusty_src.bazel,
+but adds the plc_llvm C++ shim (llvm_wrapper) and links the final `plc` binary
+against LLVM plus its transitive system libs (ffi, xml2, zlib, zstd), which
+inkwell/llvm-sys need but crate_universe doesn't resolve on its own.
+"""
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_proc_macro")
+load("@rusty_crates//:defs.bzl", "aliases", "all_crate_deps")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_proc_macro(
+    name = "plc_derive",
+    crate_name = "plc_derive",
+    crate_root = "compiler/plc_derive/src/lib.rs",
+    srcs = glob(["compiler/plc_derive/src/**/*.rs"]),
+    edition = "2021",
+    aliases = aliases(),
+    deps = all_crate_deps(package_name = "compiler/plc_derive", normal = True),
+    proc_macro_deps = all_crate_deps(package_name = "compiler/plc_derive", proc_macro = True),
+)
+
+rust_library(
+    name = "plc_source",
+    crate_name = "plc_source",
+    crate_root = "compiler/plc_source/src/lib.rs",
+    srcs = glob(["compiler/plc_source/src/**/*.rs"]),
+    edition = "2021",
+    aliases = aliases(),
+    deps = all_crate_deps(package_name = "compiler/plc_source", normal = True),
+)
+
+rust_library(
+    name = "plc_diagnostics",
+    crate_name = "plc_diagnostics",
+    crate_root = "compiler/plc_diagnostics/src/lib.rs",
+    srcs = glob(["compiler/plc_diagnostics/src/**/*.rs"]),
+    compile_data = glob(["compiler/plc_diagnostics/src/**/*.md"]),
+    edition = "2021",
+    aliases = aliases(),
+    deps = all_crate_deps(package_name = "compiler/plc_diagnostics", normal = True) + [
+        ":plc_ast",
+        ":plc_source",
+    ],
+)
+
+rust_library(
+    name = "plc_ast",
+    crate_name = "plc_ast",
+    crate_root = "compiler/plc_ast/src/lib.rs",
+    srcs = glob(["compiler/plc_ast/src/**/*.rs"]),
+    edition = "2021",
+    aliases = aliases(),
+    deps = all_crate_deps(package_name = "compiler/plc_ast", normal = True) + [
+        ":plc_source",
+        ":plc_util",
+    ],
+    proc_macro_deps = [":plc_derive"],
+)
+
+rust_library(
+    name = "plc_util",
+    crate_name = "plc_util",
+    crate_root = "compiler/plc_util/src/lib.rs",
+    srcs = glob(["compiler/plc_util/src/**/*.rs"]),
+    edition = "2021",
+    aliases = aliases(),
+    deps = all_crate_deps(package_name = "compiler/plc_util", normal = True),
+)
+
+rust_library(
+    name = "plc_index",
+    crate_name = "plc_index",
+    crate_root = "compiler/plc_index/src/lib.rs",
+    srcs = glob(["compiler/plc_index/src/**/*.rs"]),
+    edition = "2021",
+    aliases = aliases(),
+    deps = all_crate_deps(package_name = "compiler/plc_index", normal = True) + [
+        ":plc_ast",
+        ":plc_diagnostics",
+        ":plc_source",
+    ],
+)
+
+rust_library(
+    name = "section_mangler",
+    crate_name = "section_mangler",
+    crate_root = "compiler/section_mangler/src/lib.rs",
+    srcs = glob(["compiler/section_mangler/src/**/*.rs"]),
+    edition = "2021",
+    aliases = aliases(),
+    deps = all_crate_deps(package_name = "compiler/section_mangler", normal = True),
+)
+
+rust_library(
+    name = "plc_xml",
+    crate_name = "plc_xml",
+    crate_root = "compiler/plc_xml/src/lib.rs",
+    srcs = glob(["compiler/plc_xml/src/**/*.rs"]),
+    edition = "2021",
+    aliases = {":plc_ast": "ast"},
+    deps = all_crate_deps(package_name = "compiler/plc_xml", normal = True) + [
+        ":plc_ast",
+        ":plc_compiler",
+        ":plc_diagnostics",
+        ":plc_source",
+    ],
+)
+
+rust_library(
+    name = "plc_project",
+    crate_name = "plc_project",
+    crate_root = "compiler/plc_project/src/lib.rs",
+    srcs = glob(["compiler/plc_project/src/**/*.rs"]),
+    compile_data = glob(["compiler/plc_project/schema/**/*"]),
+    edition = "2021",
+    aliases = {":plc_source": "source_code"},
+    deps = all_crate_deps(package_name = "compiler/plc_project", normal = True) + [
+        ":plc_compiler",
+        ":plc_diagnostics",
+        ":plc_source",
+    ],
+)
+
+rust_library(
+    name = "plc_llvm",
+    crate_name = "plc_llvm",
+    crate_root = "compiler/plc_llvm/src/lib.rs",
+    srcs = glob(["compiler/plc_llvm/src/**/*.rs"]),
+    edition = "2021",
+    aliases = aliases(),
+    deps = all_crate_deps(package_name = "compiler/plc_llvm", normal = True) + [
+        ":plc_ast",
+        ":plc_source",
+        ":plc_diagnostics",
+        ":plc_index",
+        ":section_mangler",
+    ],
+)
+
+cc_library(
+    name = "llvm_wrapper_objs",
+    srcs = ["compiler/plc_llvm/src/cpp/llvm_wrapper.cpp"],
+    copts = ["-fPIC"],
+    linkopts = ["-Wl,--no-as-needed"],
+    alwayslink = True,
+    deps = ["@llvm_toolchain_llvm//:clang_headers"],
+)
+
+cc_binary(
+    name = "libllvm_wrapper.so",
+    linkshared = True,
+    deps = [":llvm_wrapper_objs"],
+)
+
+cc_import(
+    name = "llvm_wrapper",
+    shared_library = ":libllvm_wrapper.so",
+)
+
+rust_library(
+    name = "plc_lowering",
+    crate_name = "plc_lowering",
+    crate_root = "compiler/plc_lowering/src/lib.rs",
+    srcs = glob(["compiler/plc_lowering/src/**/*.rs"]),
+    edition = "2021",
+    aliases = aliases(),
+    deps = all_crate_deps(package_name = "compiler/plc_lowering", normal = True) + [
+        ":plc_ast",
+        ":plc_compiler",
+        ":plc_diagnostics",
+        ":plc_index",
+        ":plc_source",
+    ],
+)
+
+rust_library(
+    name = "plc_header_generator",
+    crate_name = "plc_header_generator",
+    crate_root = "compiler/plc_header_generator/src/lib.rs",
+    srcs = glob(["compiler/plc_header_generator/src/**/*.rs"]),
+    compile_data = glob(["compiler/plc_header_generator/src/**/*.h"]),
+    edition = "2021",
+    aliases = aliases(),
+    deps = all_crate_deps(package_name = "compiler/plc_header_generator", normal = True) + [
+        ":plc_ast",
+        ":plc_compiler",
+        ":plc_diagnostics",
+        ":plc_source",
+    ],
+)
+
+rust_library(
+    name = "plc_compiler",
+    crate_name = "plc",
+    crate_root = "src/lib.rs",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+    aliases = aliases(),
+    deps = all_crate_deps(package_name = "", normal = True) + [
+        ":plc_ast",
+        ":plc_diagnostics",
+        ":plc_index",
+        ":plc_llvm",
+        ":plc_source",
+        ":plc_util",
+        ":section_mangler",
+    ],
+    proc_macro_deps = [":plc_derive"],
+)
+
+rust_library(
+    name = "plc_driver_lib",
+    crate_name = "plc_driver",
+    crate_root = "compiler/plc_driver/src/lib.rs",
+    srcs = glob(["compiler/plc_driver/src/**/*.rs"]),
+    edition = "2021",
+    aliases = {
+        ":plc_ast": "ast",
+        ":plc_project": "project",
+        ":plc_source": "source_code",
+        ":plc_xml": "cfc",
+    },
+    deps = all_crate_deps(package_name = "compiler/plc_driver", normal = True) + [
+        ":plc_ast",
+        ":plc_compiler",
+        ":plc_diagnostics",
+        ":plc_header_generator",
+        ":plc_index",
+        ":plc_lowering",
+        ":plc_project",
+        ":plc_source",
+        ":plc_util",
+        ":plc_xml",
+    ],
+)
+
+rust_binary(
+    name = "plc",
+    crate_root = "compiler/plc_driver/src/main.rs",
+    srcs = ["compiler/plc_driver/src/main.rs"],
+    edition = "2021",
+    deps = all_crate_deps(package_name = "compiler/plc_driver", normal = True) + [
+        ":plc_driver_lib",
+    ],
+    data = [
+        "@rules_plc//third_party/rusty:libffi.so",
+        "@rules_plc//third_party/rusty:libzstd.so",
+        "@rules_plc//third_party/rusty:libxml2.so",
+        "@rules_plc//third_party/rusty:libz.so",
+        ":libllvm_wrapper.so",
+    ],
+    link_deps = [
+        "@rules_plc//third_party/rusty:ffi",
+        "@rules_plc//third_party/rusty:zstd",
+        "@rules_plc//third_party/rusty:xml2",
+        "@rules_plc//third_party/rusty:zlib",
+        ":llvm_wrapper",
+    ],
+)

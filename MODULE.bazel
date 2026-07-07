@@ -1,0 +1,116 @@
+module(
+    name = "rules_plc",
+    version = "0.1.0",
+)
+
+bazel_dep(name = "platforms", version = "0.0.11")
+bazel_dep(name = "rules_cc", version = "0.0.16")
+bazel_dep(name = "bazel_skylib", version = "1.7.1")
+bazel_dep(name = "toolchains_llvm", version = "1.8.0")
+
+# Adds a `clang_headers` cc_library to the generated LLVM repo (not upstream as
+# of 1.8.0) -- needed to compile rusty's plc_llvm C++ shim below.
+single_version_override(
+    module_name = "toolchains_llvm",
+    patches = ["//third_party/toolchains_llvm:cc_library_clang_headers.patch"],
+    patch_strip = 1,
+)
+
+llvm = use_extension("@toolchains_llvm//toolchain/extensions:llvm.bzl", "llvm")
+llvm.toolchain(
+    name = "llvm_toolchain",
+    llvm_version = "21.1.8",
+    stdlib = {"": "stdc++"},
+)
+use_repo(llvm, "llvm_toolchain", "llvm_toolchain_llvm")
+
+register_toolchains(
+    "@llvm_toolchain//:all",
+)
+
+bazel_dep(name = "rules_rust", version = "0.71.3")
+
+# crate.annotation's override_target_build_script/override_target_proc_macro
+# write to the wrong override_targets dict keys ("proc_macro"/"build_script"
+# instead of the "proc-macro"/"custom-build" crates_repository actually reads)
+# as of 0.71.3 -- needed for the llvm-sys build-script override below to take
+# effect at all.
+single_version_override(
+    module_name = "rules_rust",
+    patches = ["//third_party/rules_rust:allow-custom-build-script.patch"],
+    patch_strip = 1,
+)
+
+rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
+rust.toolchain(edition = "2021")
+use_repo(rust, "rust_toolchains")
+
+register_toolchains("@rust_toolchains//:all")
+
+# Transitive shared libs inkwell/llvm-sys links against; crate_universe doesn't
+# resolve these on its own (see third_party/rusty/BUILD.bazel).
+bazel_dep(name = "libffi", version = "3.4.7.bcr.4")
+bazel_dep(name = "zstd", version = "1.5.7.bcr.1")
+bazel_dep(name = "libxml2", version = "2.15.3")
+bazel_dep(name = "zlib", version = "1.3.2")
+
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+# The rusty (plc) compiler source, built from source as a third-party
+# component -- see third_party/rusty:rusty.BUILD.bazel for the crate targets.
+# Pinned past the v1.0.3 release to a commit carrying two upstream-bound fixes
+# this project needs: VAR_EXTERNAL references into a separately-compiled
+# module actually resolving (see st_library's hdrs attribute), and ANY/generic
+# data types being usable in variable declarations.
+http_archive(
+    name = "rusty",
+    url = "https://github.com/PLC-lang/rusty/archive/13500a827ba5ddb968225420aa9bb48a89547194.zip",
+    integrity = "sha256-unbRPnSDKkIEbc4zvOK/Q3J1IKQU3Iy6f0rqgpECAgQ=",
+    strip_prefix = "rusty-13500a827ba5ddb968225420aa9bb48a89547194",
+    build_file = "//third_party/rusty:rusty.BUILD.bazel",
+    patch_args = ["-p1"],
+    patches = [
+        "//third_party/rusty:support-generic-data-types.patch",
+        "//third_party/rusty:handle-VAR_EXTERNAL.patch",
+    ],
+)
+
+crate = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
+crate.annotation(
+    crate = "llvm-sys",
+    version = "211.0.1",
+    repositories = ["rusty_crates"],
+    gen_build_script = "on",
+    additive_build_file_content = """
+filegroup(
+    name = "target_c",
+    srcs = glob(["wrappers/*.c"]),
+    visibility = ["//visibility:public"],
+)
+""",
+    build_script_data = [
+        "//third_party/rusty:llvm_prefix",
+        ":target_c",
+    ],
+    build_script_data_glob = ["wrappers/*.c"],
+    build_script_compile_data = ["//third_party/rusty:llvm_sys_build_script"],
+    build_script_rundir = "",
+    override_target_build_script = "//third_party/rusty:llvm_sys_build_script",
+    label_injections = {
+        "@llvm_toolchain_llvm": "@llvm_toolchain_llvm",
+    },
+)
+crate.from_cargo(
+    name = "rusty_crates",
+    cargo_lockfile = "@rusty//:Cargo.lock",
+    manifests = ["@rusty//:Cargo.toml"],
+    generate_build_scripts = True,
+)
+use_repo(crate, "rusty_crates")
+
+http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
+
+register_toolchains(
+    "//third_party/rusty:linux_x86_64",
+    "//third_party/rusty:linux_aarch64",
+)

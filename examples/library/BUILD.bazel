@@ -1,0 +1,17 @@
+load("//st:defs.bzl", "st_library", "st_test")
+
+# An st_library with an st_test depending on it. mathlib.st owns the real
+# call_count global; st_library's srcs already double as the interface
+# dependents see (plc's -i only reads signatures), so mathlib_test can
+# reference call_count via VAR_EXTERNAL with no separate header needed.
+st_library(
+    name = "mathlib",
+    srcs = ["mathlib.st"],
+    visibility = ["//visibility:public"],
+)
+
+st_test(
+    name = "mathlib_test",
+    main = "mathlib_test.st",
+    deps = [":mathlib"],
+)

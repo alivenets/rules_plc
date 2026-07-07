@@ -1,0 +1,5 @@
+// A full TYPE definition with no implementation, exported as an st_library
+// hdrs file so both the owning library and its dependents can use it.
+TYPE
+    Coordinate : DINT;
+END_TYPE

@@ -1,0 +1,13 @@
+load("//st:defs.bzl", "st_binary", "st_library")
+
+# An st_library and an st_binary that depends on it, colocated.
+st_library(
+    name = "doubler",
+    srcs = ["doubler.st"],
+)
+
+st_binary(
+    name = "doubler_app",
+    main = "doubler_app.st",
+    deps = [":doubler"],
+)
