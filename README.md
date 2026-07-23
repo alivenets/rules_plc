@@ -1,0 +1,1 @@
+# rules_plc - Bazel module to compile and test ST code

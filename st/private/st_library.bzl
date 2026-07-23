@@ -2,6 +2,7 @@
 
 load("@rules_cc//cc:find_cc_toolchain.bzl", "find_cc_toolchain", "use_cc_toolchain")
 load("//st:providers.bzl", "StInfo", "create_st_compilation_context", "create_st_linking_context", "merge_st_infos")
+load("//st:private/headers.bzl", "generate_st_headers")
 
 def _st_library_impl(ctx):
     compiler = ctx.toolchains["//st:toolchain_type"].compiler
@@ -46,41 +47,7 @@ def _st_library_impl(ctx):
     # would skip compilation entirely rather than compile *and* emit headers.
     # With no -o, plc writes one .h per compiled module (named after that
     # module) into --header-output, instead of combining them into one file.
-    #
-    # plc's own header template unconditionally #includes <dependencies.plc.h>
-    # but never emits that file itself, so this action also drops in a stub
-    # for it alongside plc's own output -- it must land in the same directory
-    # as the generated .h files since they share one -I include path.
-    headers_dir = ctx.actions.declare_directory(ctx.label.name + "_headers")
-
-    header_args = ctx.actions.args()
-    header_args.add(compiler.path)
-    header_args.add_all(ctx.files.srcs)
-    header_args.add_all(ctx.files.hdrs)
-    header_args.add_all(dep_interfaces, before_each = "-i")
-    header_args.add("--generate-headers")
-    header_args.add("--header-output", headers_dir.path)
-
-    generate_headers_script = ctx.actions.declare_file(ctx.label.name + "_generate_headers.sh")
-    ctx.actions.write(
-        output = generate_headers_script,
-        content = """#!/usr/bin/env bash
-set -eu
-"$@"
-printf '// Stub for plc-generated headers, which unconditionally #include this;\\n// left empty as st_library has no extra dependency declarations to add.\\n' \\
-    > "{headers_dir}/dependencies.plc.h"
-""".format(headers_dir = headers_dir.path),
-        is_executable = True,
-    )
-
-    ctx.actions.run(
-        executable = generate_headers_script,
-        arguments = [header_args],
-        inputs = depset([compiler], transitive = [own_interfaces]),
-        outputs = [headers_dir],
-        mnemonic = "StGenerateHeaders",
-        progress_message = "Generating C headers for ST library %{label}",
-    )
+    headers_dir = generate_st_headers(ctx, compiler, ctx.files.srcs + ctx.files.hdrs, dep_interfaces, "st_library")
 
     # Also export a plain CcInfo, wrapping the compiled object as a linkable
     # library, so non-ST rules (e.g. rust_test's deps) can depend on an
@@ -103,8 +70,28 @@ printf '// Stub for plc-generated headers, which unconditionally #include this;\
         ),
         disallow_dynamic_library = True,
     )
-    exported_cc_info = cc_common.merge_cc_infos(cc_infos = [CcInfo(linking_context = own_linking_context)] +
-                                                            [dep[CcInfo] for dep in ctx.attr.deps] +
+    # Also expose the generated headers on the CcInfo compilation context, so
+    # a cc_test/cc_library depending on this st_library can #include the
+    # plc-generated .h directly instead of hand-declaring extern "C"
+    # signatures -- as e.g. "{package}/{name}_headers/{module}.h", relative
+    # to the workspace/bin root, which every cc_* compile action already
+    # searches by default. A bare `#include "{module}.h"` would risk silently
+    # resolving to the wrong header if two libraries happen to compile
+    # same-named modules, since `-I`/system_includes entries below aren't
+    # package-scoped -- so that's deliberately not offered as an option here,
+    # even though system_includes is what makes it possible. system_includes
+    # (not quote_includes) is only for plc's own generated
+    # `#include <dependencies.plc.h>`, which is always angle-bracket and
+    # therefore needs a `-I`, not `-iquote`, search path; its content is an
+    # identical no-op stub in every headers dir, so which copy an ambiguous
+    # lookup picks doesn't matter.
+    own_compilation_context = cc_common.create_compilation_context(
+        headers = depset([headers_dir]),
+        system_includes = depset([headers_dir.path]),
+    )
+    exported_cc_info = cc_common.merge_cc_infos(cc_infos = [
+        CcInfo(compilation_context = own_compilation_context, linking_context = own_linking_context),
+    ] + [dep[CcInfo] for dep in ctx.attr.deps] +
                                                             [dep[CcInfo] for dep in ctx.attr.c_deps])
 
     own_headers = depset([headers_dir], transitive = [dep_info.compilation_context.headers])

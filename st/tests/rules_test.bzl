@@ -69,6 +69,26 @@ def _st_binary_links_with_fuse_ld_lld_test(ctx):
 
 st_binary_links_with_fuse_ld_lld_test = analysistest.make(_st_binary_links_with_fuse_ld_lld_test)
 
+def _st_binary_without_program_skips_wrapper_test(ctx):
+    env = analysistest.begin(ctx)
+
+    validate_actions = [a for a in analysistest.target_actions(env) if a.mnemonic == "StValidateProgram"]
+    asserts.equals(env, 0, len(validate_actions), "st_binary with no `program` must not validate/generate a PROGRAM wrapper")
+
+    write_actions = [a for a in analysistest.target_actions(env) if a.mnemonic == "FileWrite"]
+    asserts.true(
+        env,
+        not any([a.outputs.to_list()[0].basename.endswith("_main.st") for a in write_actions]),
+        "st_binary with no `program` must not generate a FUNCTION main wrapper",
+    )
+
+    link_actions = [a for a in analysistest.target_actions(env) if a.mnemonic == "StLink"]
+    asserts.equals(env, 1, len(link_actions), "st_binary should still register exactly one StLink action")
+
+    return analysistest.end(env)
+
+st_binary_without_program_skips_wrapper_test = analysistest.make(_st_binary_without_program_skips_wrapper_test)
+
 def rules_test_suite(name):
     st_library_provides_st_info_test(
         name = "st_library_provides_st_info_test",
@@ -82,6 +102,10 @@ def rules_test_suite(name):
         name = "st_binary_links_with_fuse_ld_lld_test",
         target_under_test = "//st/tests:trivial_binary",
     )
+    st_binary_without_program_skips_wrapper_test(
+        name = "st_binary_without_program_skips_wrapper_test",
+        target_under_test = "//st/tests:no_program_binary",
+    )
 
     native.test_suite(
         name = name,
@@ -89,5 +113,6 @@ def rules_test_suite(name):
             ":st_library_provides_st_info_test",
             ":st_library_merges_transitive_deps_test",
             ":st_binary_links_with_fuse_ld_lld_test",
+            ":st_binary_without_program_skips_wrapper_test",
         ],
     )

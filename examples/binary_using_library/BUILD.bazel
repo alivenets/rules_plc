@@ -8,7 +8,7 @@ st_library(
 
 st_binary(
     name = "doubler_app",
-    main = "doubler_app.st",
+    program = "doubler_app.st",
     deps = [":doubler"],
 )
 

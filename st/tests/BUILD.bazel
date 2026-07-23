@@ -6,7 +6,9 @@ load(":rules_test.bzl", "rules_test_suite")
 
 # hdrs: a TYPE declared in a .dut header, with no implementation of its own,
 # must be visible both to the owning library's own srcs and, re-exported, to
-# its dependents.
+# its dependents. Also exercises st_library's generated C headers (exposed on
+# its CcInfo), which the test #includes directly instead of hand-declaring
+# extern "C" signatures.
 st_library(
     name = "point_lib",
     srcs = ["point_lib.st"],
@@ -55,7 +57,19 @@ cc_test(
 # above, which now uses cc_test instead.
 st_binary(
     name = "trivial_binary",
-    main = "trivial_program.st",
+    program = "trivial_program.st",
+)
+
+# `program` is optional: with none given, srcs/hdrs are linked as-is with no
+# generated wrapper, so one of them must supply its own FUNCTION main.
+st_binary(
+    name = "no_program_binary",
+    srcs = ["no_program_main.st"],
+)
+
+sh_test(
+    name = "no_program_binary_test",
+    srcs = [":no_program_binary"],
 )
 
 rules_test_suite(name = "rules_test")

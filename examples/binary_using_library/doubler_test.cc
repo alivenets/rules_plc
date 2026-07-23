@@ -1,8 +1,5 @@
-#include <cstdint>
-
+#include "examples/binary_using_library/doubler_headers/doubler.h"
 #include "gtest/gtest.h"
-
-extern "C" int32_t st_double(int32_t x);
 
 TEST(Doubler, DoublesItsInput) {
     EXPECT_EQ(st_double(21), 42);
