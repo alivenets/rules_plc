@@ -5,13 +5,11 @@ load("//st:toolchain.bzl", "st_toolchain")
 
 package(default_visibility = ["//visibility:public"])
 
-# ── llvm-sys build-script wiring ──────────────────────────────────────────────
 # rusty's plc_llvm crate depends on the llvm-sys/inkwell crates, whose upstream
 # build.rs shells out to `llvm-config` and searches system paths for LLVM. That
 # doesn't work under Bazel's sandbox, so this build.rs (adapted from densha) is
 # swapped in via crate.annotation(override_target_build_script=...) in
 # MODULE.bazel, pointed at the toolchains_llvm-provided LLVM instead.
-
 genrule(
     name = "llvm_prefix",
     srcs = [
@@ -58,9 +56,9 @@ cargo_build_script(
     rustc_flags = ["--verbose"],
 )
 
-# rustc passes -l<name>; Bazel's bazel_dep archives don't expose .so files under
+# rustc passes -l<name> requiring libraries to be in the linker paths.
+# Bazel's bazel_dep archives don't expose .so files under
 # those canonical names, so extract/build them here for the final `plc` link.
-
 genrule(
     name = "libffi_so_src",
     srcs = ["@libffi//:libffi"],
@@ -156,42 +154,15 @@ cc_import(
     shared_library = ":libzstd.so",
 )
 
-# ── st toolchains ─────────────────────────────────────────────────────────────
-
 st_toolchain(
-    name = "linux_x86_64_compiler",
+    name = "plc_compiler",
     compiler = "@rusty//:plc",
 )
 
 toolchain(
-    name = "linux_x86_64",
-    exec_compatible_with = [
-        "@platforms//os:linux",
-        "@platforms//cpu:x86_64",
-    ],
-    target_compatible_with = [
-        "@platforms//os:linux",
-        "@platforms//cpu:x86_64",
-    ],
-    toolchain = ":linux_x86_64_compiler",
+    name = "plc",
+    toolchain = ":plc_compiler",
     toolchain_type = "//st:toolchain_type",
 )
 
-st_toolchain(
-    name = "linux_aarch64_compiler",
-    compiler = "@rusty_linux_aarch64//file",
-)
 
-toolchain(
-    name = "linux_aarch64",
-    exec_compatible_with = [
-        "@platforms//os:linux",
-        "@platforms//cpu:aarch64",
-    ],
-    target_compatible_with = [
-        "@platforms//os:linux",
-        "@platforms//cpu:aarch64",
-    ],
-    toolchain = ":linux_aarch64_compiler",
-    toolchain_type = "//st:toolchain_type",
-)

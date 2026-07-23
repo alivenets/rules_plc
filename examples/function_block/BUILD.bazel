@@ -1,14 +1,17 @@
-load("//st:defs.bzl", "st_library", "st_test")
+load("//st:defs.bzl", "st_library")
 
 # A FUNCTION_BLOCK (stateful, instantiable POU) compiled as an st_library,
-# with an st_test exercising an instance of it across multiple calls.
+# with a cc_test exercising an instance of it across multiple calls.
 st_library(
     name = "counter",
     srcs = ["counter.st"],
 )
 
-st_test(
+cc_test(
     name = "counter_test",
-    main = "counter_test.st",
-    deps = [":counter"],
+    srcs = ["counter_test.cc"],
+    deps = [
+        ":counter",
+        "@googletest//:gtest_main",
+    ],
 )

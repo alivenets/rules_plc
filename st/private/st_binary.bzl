@@ -1,5 +1,6 @@
 """Implementation of the st_binary and st_test rules."""
 
+load("@rules_cc//cc:find_cc_toolchain.bzl", "find_cc_toolchain", "use_cc_toolchain")
 load("//st:providers.bzl", "StInfo", "merge_st_infos")
 
 _MAIN_WRAPPER_TEMPLATE = """FUNCTION main : DINT
@@ -43,10 +44,40 @@ def _cc_libraries_to_link(cc_info):
                 link_args.append("-l" + _library_link_name(lib_file))
     return files, extra_inputs, link_args
 
-def _link(ctx, toolchain, extra_srcs):
+def _compile_own_object(ctx, toolchain, extra_srcs):
+    """Compiles this binary's own sources (main, generated wrapper, srcs, hdrs) into a
+    single relocatable object -- mirrors st_library's own -c step, so the result can be
+    reused both for the final link below and for this binary's exported CcInfo."""
+    dep_info = merge_st_infos([dep[StInfo] for dep in ctx.attr.deps])
+    dep_interfaces = dep_info.compilation_context.interfaces
+
+    own_sources = extra_srcs + ctx.files.hdrs
+    out = ctx.actions.declare_file(ctx.label.name + ".o")
+
+    args = ctx.actions.args()
+    args.add("-c")
+    args.add_all(own_sources)
+    args.add_all(dep_interfaces, before_each = "-i")
+    args.add("-o", out)
+
+    # st_binary's own object (unlike st_library's) is linked straight into a
+    # PIE executable below, which requires PIC relocations -- plc's -c
+    # defaults to non-PIC, which ld.lld rejects with R_X86_64_32 errors.
+    args.add("--fpic")
+
+    ctx.actions.run(
+        executable = toolchain.compiler,
+        arguments = [args],
+        inputs = depset(own_sources, transitive = [dep_interfaces]),
+        outputs = [out],
+        mnemonic = "StCompile",
+        progress_message = "Compiling ST binary object %{label}",
+    )
+    return out
+
+def _link(ctx, toolchain, own_object):
     dep_info = merge_st_infos([dep[StInfo] for dep in ctx.attr.deps])
     dep_objects = dep_info.linking_context.objects
-    dep_interfaces = dep_info.compilation_context.interfaces
 
     # c_deps implement {external} declarations natively; deps may also carry
     # their own transitively-collected c_deps via dep_info.linking_context.cc_info.
@@ -59,10 +90,8 @@ def _link(ctx, toolchain, extra_srcs):
     out = ctx.actions.declare_file(ctx.label.name)
 
     args = ctx.actions.args()
-    args.add_all(extra_srcs)
-    args.add_all(ctx.files.hdrs)
+    args.add(own_object)
     args.add_all(dep_objects)
-    args.add_all(dep_interfaces, before_each = "-i")
     args.add("-o", out)
     args.add_all(cc_link_args)
     args.add("--linker", toolchain.linker.path)
@@ -72,12 +101,12 @@ def _link(ctx, toolchain, extra_srcs):
         executable = toolchain.compiler,
         arguments = [args],
         inputs = depset(
-            extra_srcs + ctx.files.hdrs + cc_lib_files + cc_extra_inputs + [toolchain.linker],
-            transitive = [dep_objects, dep_interfaces],
+            [own_object] + cc_lib_files + cc_extra_inputs + [toolchain.linker],
+            transitive = [dep_objects],
         ),
         outputs = [out],
         mnemonic = "StLink",
-        progress_message = "Compiling ST binary %{label}",
+        progress_message = "Linking ST binary %{label}",
     )
     return out
 
@@ -115,7 +144,34 @@ touch {marker}
         content = _MAIN_WRAPPER_TEMPLATE.format(program_name = program_name),
     )
 
-    out = _link(ctx, toolchain, extra_srcs = [wrapper, ctx.file.main])
+    own_object = _compile_own_object(ctx, toolchain, extra_srcs = [wrapper, ctx.file.main] + ctx.files.srcs)
+    out = _link(ctx, toolchain, own_object)
+
+    # Also export a plain CcInfo, wrapping own_object as a linkable library, so
+    # non-ST rules (e.g. cc_test's deps) can depend on an st_binary directly to
+    # exercise FUNCTION/FUNCTION_BLOCK POUs defined in its own srcs -- the same
+    # way st_library does for its own compiled object.
+    cc_toolchain = find_cc_toolchain(ctx)
+    feature_configuration = cc_common.configure_features(
+        ctx = ctx,
+        cc_toolchain = cc_toolchain,
+        requested_features = ctx.features,
+        unsupported_features = ctx.disabled_features,
+    )
+    own_linking_context, _ = cc_common.create_linking_context_from_compilation_outputs(
+        actions = ctx.actions,
+        name = ctx.label.name,
+        feature_configuration = feature_configuration,
+        cc_toolchain = cc_toolchain,
+        compilation_outputs = cc_common.create_compilation_outputs(
+            objects = depset([own_object]),
+            pic_objects = depset([own_object]),
+        ),
+        disallow_dynamic_library = True,
+    )
+    exported_cc_info = cc_common.merge_cc_infos(cc_infos = [CcInfo(linking_context = own_linking_context)] +
+                                                            [dep[CcInfo] for dep in ctx.attr.deps] +
+                                                            [dep[CcInfo] for dep in ctx.attr.c_deps])
 
     return [
         DefaultInfo(
@@ -124,19 +180,15 @@ touch {marker}
             runfiles = ctx.runfiles(files = [out]),
         ),
         OutputGroupInfo(_validation = depset([marker])),
+        exported_cc_info,
     ]
 
-def _st_test_impl(ctx):
-    toolchain = ctx.toolchains["//st:toolchain_type"]
-    out = _link(ctx, toolchain, extra_srcs = [ctx.file.main])
-
-    return [DefaultInfo(
-        executable = out,
-        files = depset([out]),
-        runfiles = ctx.runfiles(files = [out]),
-    )]
 
 _COMMON_ATTRS = {
+    "srcs": attr.label_list(
+        allow_files = [".st"],
+        doc = "Additional ST source files implementing FUNCTION/FUNCTION_BLOCK POUs local to this binary, compiled alongside main.",
+    ),
     "hdrs": attr.label_list(
         allow_files = [".dut", ".st"],
         doc = "Full type/declaration files (e.g. .dut TYPE definitions) local to this binary, with no implementation of their own. Compiled alongside main.",
@@ -149,6 +201,7 @@ _COMMON_ATTRS = {
         providers = [CcInfo],
         doc = "cc_library targets providing the native implementation of this binary's own {external} FUNCTION/FUNCTION_BLOCK declarations.",
     ),
+    "_cc_toolchain": attr.label(default = Label("@rules_cc//cc:current_cc_toolchain")),
 }
 
 st_binary = rule(
@@ -162,22 +215,8 @@ st_binary = rule(
             doc = "The .st file declaring the PROGRAM that is this binary's cyclic entry point; the PROGRAM's name must match the file's basename. st_binary generates and links in the FUNCTION main wrapper that instantiates and calls it once -- do not write your own FUNCTION main.",
         ),
     ),
-    toolchains = ["//st:toolchain_type"],
+    toolchains = ["//st:toolchain_type"] + use_cc_toolchain(),
+    fragments = ["cpp"],
     doc = "Compiles a PROGRAM (plus any st_library deps) into a native executable, auto-generating the FUNCTION main entry point that runs it.",
 )
 
-st_test = rule(
-    implementation = _st_test_impl,
-    executable = True,
-    test = True,
-    attrs = dict(
-        _COMMON_ATTRS,
-        main = attr.label(
-            mandatory = True,
-            allow_single_file = [".st"],
-            doc = "The .st file containing the FUNCTION main entry point.",
-        ),
-    ),
-    toolchains = ["//st:toolchain_type"],
-    doc = "Compiles and links an ST main file (plus any st_library deps) into a test executable: the FUNCTION main return value becomes the process exit code (0 = pass).",
-)

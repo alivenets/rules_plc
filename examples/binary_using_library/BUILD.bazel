@@ -11,3 +11,12 @@ st_binary(
     main = "doubler_app.st",
     deps = [":doubler"],
 )
+
+cc_test(
+    name = "doubler_test",
+    srcs = ["doubler_test.cc"],
+    deps = [
+        ":doubler",
+        "@googletest//:gtest_main",
+    ],
+)

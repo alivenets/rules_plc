@@ -1,4 +1,4 @@
-load("//st:defs.bzl", "st_binary", "st_library", "st_test")
+load("//st:defs.bzl", "st_binary", "st_library")
 load(":rules_test.bzl", "rules_test_suite")
 
 # Regression coverage for the ST rules themselves (hdrs propagation, transitive
@@ -13,10 +13,13 @@ st_library(
     hdrs = ["point_types.dut"],
 )
 
-st_test(
+cc_test(
     name = "hdrs_test",
-    main = "hdrs_test.st",
-    deps = [":point_lib"],
+    srcs = ["hdrs_test.cc"],
+    deps = [
+        ":point_lib",
+        "@googletest//:gtest_main",
+    ],
 )
 
 # Transitive deps: st_library A -> B -> C, with the binary only naming the
@@ -38,10 +41,21 @@ st_library(
     deps = [":middle"],
 )
 
-st_test(
+cc_test(
     name = "transitive_deps_test",
-    main = "transitive_deps_test.st",
-    deps = [":top"],
+    srcs = ["transitive_deps_test.cc"],
+    deps = [
+        ":top",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# A minimal st_binary purely to exercise st_binary's own StLink action/flags
+# (see rules_test.bzl) -- unrelated to the st_library CcInfo-export coverage
+# above, which now uses cc_test instead.
+st_binary(
+    name = "trivial_binary",
+    main = "trivial_program.st",
 )
 
 rules_test_suite(name = "rules_test")

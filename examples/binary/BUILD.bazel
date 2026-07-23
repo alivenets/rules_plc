@@ -4,4 +4,11 @@ load("//st:defs.bzl", "st_binary")
 st_binary(
     name = "hello",
     main = "hello.st",
+    srcs = ["doubler.st"],
+)
+
+cc_test(
+    name = "hello_test",
+    srcs = ["hello_test.cc"],
+    deps = [":hello"],
 )
