@@ -29,9 +29,8 @@ def _st_library_provides_st_info_test(ctx):
     objects = info.linking_context.objects.to_list()
     asserts.equals(env, 1, len(objects), "a library with no deps should contribute exactly one object")
 
-    actions = analysistest.target_actions(env)
-    asserts.equals(env, 1, len(actions), "st_library should register exactly one compile action")
-    asserts.equals(env, "StCompile", actions[0].mnemonic)
+    compile_actions = [a for a in analysistest.target_actions(env) if a.mnemonic == "StCompile"]
+    asserts.equals(env, 1, len(compile_actions), "st_library should register exactly one StCompile action")
 
     return analysistest.end(env)
 
@@ -81,7 +80,7 @@ def rules_test_suite(name):
     )
     st_binary_links_with_fuse_ld_lld_test(
         name = "st_binary_links_with_fuse_ld_lld_test",
-        target_under_test = "//st/tests:hdrs_test",
+        target_under_test = "//st/tests:trivial_binary",
     )
 
     native.test_suite(

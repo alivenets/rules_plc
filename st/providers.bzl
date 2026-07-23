@@ -10,6 +10,7 @@ StCompilationContext = provider(
     doc = "Interface files a target exposes to dependents at compile time.",
     fields = {
         "interfaces": "depset of interface Files (compiled srcs plus declaration-only hdrs): this target's plus all transitive deps'.",
+        "headers": "depset of generated header directories (one per st_library, containing one .h per ST module compiled into it): this target's plus all transitive deps'.",
     },
 )
 
@@ -29,8 +30,8 @@ StInfo = provider(
     },
 )
 
-def create_st_compilation_context(interfaces = depset()):
-    return StCompilationContext(interfaces = interfaces)
+def create_st_compilation_context(interfaces = depset(), headers = depset()):
+    return StCompilationContext(interfaces = interfaces, headers = headers)
 
 def create_st_linking_context(objects = depset(), cc_info = None):
     return StLinkingContext(objects = objects, cc_info = cc_info)
@@ -41,6 +42,7 @@ def merge_st_infos(st_infos):
     return StInfo(
         compilation_context = create_st_compilation_context(
             interfaces = depset(transitive = [info.compilation_context.interfaces for info in st_infos]),
+            headers = depset(transitive = [info.compilation_context.headers for info in st_infos]),
         ),
         linking_context = create_st_linking_context(
             objects = depset(transitive = [info.linking_context.objects for info in st_infos]),

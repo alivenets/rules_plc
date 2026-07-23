@@ -1,0 +1,2 @@
+PROGRAM trivial_program
+END_PROGRAM
