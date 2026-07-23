@@ -11,7 +11,10 @@ bazel_dep(name = "googletest", version = "1.15.2")
 
 single_version_override(
     module_name = "toolchains_llvm",
-    patches = ["//third_party/toolchains_llvm:cc_library_clang_headers.patch"],
+    patches = [
+        "//third_party/toolchains_llvm:cc_library_clang_headers.patch",
+        "//third_party/toolchains_llvm:llvm_static_libs.patch",
+    ],
     patch_strip = 1,
 )
 
@@ -82,13 +85,19 @@ filegroup(
 )
 """,
     build_script_data = [
-        "//third_party/rusty:llvm_prefix",
+        "//third_party/llvm-sys:llvm_prefix",
         ":target_c",
     ],
     build_script_data_glob = ["wrappers/*.c"],
-    build_script_compile_data = ["//third_party/rusty:llvm_sys_build_script"],
+    build_script_compile_data = ["//third_party/llvm-sys:llvm_sys_build_script"],
     build_script_rundir = "",
-    override_target_build_script = "//third_party/rusty:llvm_sys_build_script",
+    override_target_build_script = "//third_party/llvm-sys:llvm_sys_build_script",
+    # llvm-sys's rustc-link-search points at the LLVM toolchain's lib/ dir
+    # (see //third_party/llvm-sys:build.rs); without these declared as a real
+    # data dependency, the archives aren't hermetically materialized for the
+    # linking action, and the build only worked by the rustc action escaping
+    # the sandbox to read the (user/machine-specific) Bazel output base path.
+    data = ["@llvm_toolchain_llvm//:lib_archives"],
     label_injections = {
         "@llvm_toolchain_llvm": "@llvm_toolchain_llvm",
     },

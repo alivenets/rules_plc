@@ -1,0 +1,19 @@
+--- a/toolchain/BUILD.llvm_repo.tpl
++++ b/toolchain/BUILD.llvm_repo.tpl
+@@ -140,6 +140,16 @@
+     ),
+ )
+
++# The LLVM component static archives (libLLVMCore.a, libLLVMSupport.a, ...)
++# that llvm-sys/inkwell link against. These aren't wrapped by any existing
++# target, so llvm-sys's build.rs override (see //third_party/llvm-sys) can't
++# declare them as a Bazel dependency without this -- and without that
++# declaration, the linking rustc action has no hermetic way to see them.
++filegroup(
++    name = "lib_archives",
++    srcs = glob(["lib/*.a"], allow_empty = True),
++)
++
+ filegroup(
+     name = "lib_legacy",
+     srcs = glob(

@@ -789,7 +789,24 @@ fn main() {
         return;
     }
 
-    let libdir = llvm_config(&llvm_config_path, ["--libdir"]);
+    // Prefer a Bazel execroot-relative reference to the toolchain's lib/
+    // directory over asking llvm-config for `--libdir`. llvm-config
+    // resolves its own install location to an absolute, user/machine-
+    // specific Bazel output-base path at runtime; embedding that into
+    // rustc-link-search breaks build determinism, and since it's reached by
+    // escaping outside anything Bazel declared as an input, it isn't
+    // hermetic either. These candidates mirror locate_llvm_config()'s
+    // Bazel-specific probing above; the directory is only actually
+    // populated once @llvm_toolchain_llvm//:lib_archives is a declared
+    // `data` dependency (see crate.annotation in MODULE.bazel).
+    let libdir = [
+        PathBuf::from("external/toolchains_llvm++llvm+llvm_toolchain_llvm/lib"),
+        PathBuf::from("toolchains_llvm++llvm+llvm_toolchain_llvm/lib"),
+    ]
+    .into_iter()
+    .find(|p| p.is_dir())
+    .map(|p| p.display().to_string())
+    .unwrap_or_else(|| llvm_config(&llvm_config_path, ["--libdir"]));
 
     // Export information to other crates
     println!("cargo:config_path={}", llvm_config_path.display()); // will be DEP_LLVM_CONFIG_PATH

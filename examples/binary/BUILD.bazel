@@ -3,12 +3,15 @@ load("//st:defs.bzl", "st_binary")
 # A standalone st_binary with no library dependencies.
 st_binary(
     name = "hello",
-    main = "hello.st",
+    program = "hello.st",
     srcs = ["doubler.st"],
 )
 
 cc_test(
     name = "hello_test",
     srcs = ["hello_test.cc"],
-    deps = [":hello"],
+    deps = [
+        ":hello",
+        "@googletest//:gtest_main",
+    ],
 )

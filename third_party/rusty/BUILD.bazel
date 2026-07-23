@@ -1,60 +1,7 @@
-load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
 load("@rules_cc//cc:cc_import.bzl", "cc_import")
-load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
 load("//st:toolchain.bzl", "st_toolchain")
 
 package(default_visibility = ["//visibility:public"])
-
-# rusty's plc_llvm crate depends on the llvm-sys/inkwell crates, whose upstream
-# build.rs shells out to `llvm-config` and searches system paths for LLVM. That
-# doesn't work under Bazel's sandbox, so this build.rs (adapted from densha) is
-# swapped in via crate.annotation(override_target_build_script=...) in
-# MODULE.bazel, pointed at the toolchains_llvm-provided LLVM instead.
-genrule(
-    name = "llvm_prefix",
-    srcs = [
-        "@llvm_toolchain_llvm//:bin/llvm-config",
-        "@llvm_toolchain_llvm//:lib/libclang.so",
-    ],
-    outs = ["llvm_prefix.txt"],
-    cmd = """
-LLVM_CONFIG="$(execpath @llvm_toolchain_llvm//:bin/llvm-config)"
-LLVM_LIBS="$(execpath @llvm_toolchain_llvm//:lib/libclang.so)"
-LLVM_BIN_DIR="$$(dirname "$$LLVM_CONFIG")"
-LLVM_SYS_211_PREFIX="$${LLVM_BIN_DIR%/bin}"
-LLVM_SYS_SYSTEM_LIBRARY_DIRS="$$(dirname "$$LLVM_LIBS")"
-echo "LLVM_SYS_211_PREFIX=$$LLVM_SYS_211_PREFIX" > $@
-""",
-)
-
-copy_file(
-    name = "target_c",
-    src = "@@rules_rust++crate+rusty_crates__llvm-sys-211.0.1//:wrappers/target.c",
-    out = "wrappers/target.c",
-    is_executable = False,
-    allow_symlink = False,
-)
-
-cargo_build_script(
-    name = "llvm_sys_build_script",
-    srcs = ["build.rs"],
-    pkg_name = "llvm-sys",
-    version = "211.0.1",
-    edition = "2021",
-    deps = [
-        "@rusty_crates//:anyhow",
-        "@rusty_crates//:cc",
-        "@rusty_crates//:lazy_static",
-        "@rusty_crates//:regex",
-        "@rusty_crates//:semver",
-    ],
-    data = [
-        "@llvm_toolchain_llvm//:bin/llvm-config",
-        ":target_c",
-    ],
-    build_script_env_files = [":llvm_prefix.txt"],
-    rustc_flags = ["--verbose"],
-)
 
 # rustc passes -l<name> requiring libraries to be in the linker paths.
 # Bazel's bazel_dep archives don't expose .so files under
@@ -164,5 +111,3 @@ toolchain(
     toolchain = ":plc_compiler",
     toolchain_type = "//st:toolchain_type",
 )
-
-
