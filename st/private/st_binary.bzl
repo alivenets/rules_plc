@@ -2,7 +2,7 @@
 
 load("@rules_cc//cc:find_cc_toolchain.bzl", "find_cc_toolchain", "use_cc_toolchain")
 load("//st:providers.bzl", "StInfo", "merge_st_infos")
-load("//st:private/headers.bzl", "generate_st_headers")
+load("//st:private/headers.bzl", "GENERATE_HEADERS_ATTR", "generate_st_headers")
 
 _MAIN_WRAPPER_TEMPLATE = """FUNCTION main : DINT
 VAR
@@ -208,10 +208,10 @@ touch {marker}
         # As with st_library, also expose plc's generated C headers for
         # srcs/hdrs on the CcInfo compilation context, so a cc_test depending
         # on this st_binary can #include them (as e.g.
-        # "{package}/{name}_headers/{module}.h", relative to the
+        # "{package}/{name}_st/{module}.h", relative to the
         # workspace/bin root -- see st_library.bzl for why system_includes
         # instead of quote_includes/includes).
-        pou_headers_dir = generate_st_headers(ctx, toolchain.compiler, own_pous, dep_interfaces, "st_binary")
+        pou_headers_dir = generate_st_headers(ctx, toolchain.compiler, own_pous, dep_interfaces)
         own_compilation_context = cc_common.create_compilation_context(
             headers = depset([pou_headers_dir]),
             system_includes = depset([pou_headers_dir.path]),
@@ -230,25 +230,28 @@ touch {marker}
     ]
 
 
-_COMMON_ATTRS = {
-    "srcs": attr.label_list(
-        allow_files = [".st"],
-        doc = "Additional ST source files implementing FUNCTION/FUNCTION_BLOCK POUs local to this binary, compiled alongside program.",
-    ),
-    "hdrs": attr.label_list(
-        allow_files = [".dut", ".st"],
-        doc = "Full type/declaration files (e.g. .dut TYPE definitions) local to this binary, with no implementation of their own. Compiled alongside program.",
-    ),
-    "deps": attr.label_list(
-        providers = [StInfo],
-        doc = "st_library targets this binary's program calls into.",
-    ),
-    "c_deps": attr.label_list(
-        providers = [CcInfo],
-        doc = "cc_library targets providing the native implementation of this binary's own {external} FUNCTION/FUNCTION_BLOCK declarations.",
-    ),
-    "_cc_toolchain": attr.label(default = Label("@rules_cc//cc:current_cc_toolchain")),
-}
+_COMMON_ATTRS = dict(
+    {
+        "srcs": attr.label_list(
+            allow_files = [".st"],
+            doc = "Additional ST source files implementing FUNCTION/FUNCTION_BLOCK POUs local to this binary, compiled alongside program.",
+        ),
+        "hdrs": attr.label_list(
+            allow_files = [".dut", ".st"],
+            doc = "Full type/declaration files (e.g. .dut TYPE definitions) local to this binary, with no implementation of their own. Compiled alongside program.",
+        ),
+        "deps": attr.label_list(
+            providers = [StInfo],
+            doc = "st_library targets this binary's program calls into.",
+        ),
+        "c_deps": attr.label_list(
+            providers = [CcInfo],
+            doc = "cc_library targets providing the native implementation of this binary's own {external} FUNCTION/FUNCTION_BLOCK declarations.",
+        ),
+        "_cc_toolchain": attr.label(default = Label("@rules_cc//cc:current_cc_toolchain")),
+    },
+    **GENERATE_HEADERS_ATTR
+)
 
 st_binary = rule(
     implementation = _st_binary_impl,

@@ -1,4 +1,4 @@
-#include "examples/function_block/counter_headers/counter.h"
+#include "examples/function_block/counter_st/counter.h"
 #include "gtest/gtest.h"
 
 
