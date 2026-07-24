@@ -92,19 +92,19 @@ st_binary_without_program_skips_wrapper_test = analysistest.make(_st_binary_with
 def rules_test_suite(name):
     st_library_provides_st_info_test(
         name = "st_library_provides_st_info_test",
-        target_under_test = "//st/tests:point_lib",
+        target_under_test = "//tests:point_lib",
     )
     st_library_merges_transitive_deps_test(
         name = "st_library_merges_transitive_deps_test",
-        target_under_test = "//st/tests:top",
+        target_under_test = "//tests:top",
     )
     st_binary_links_with_fuse_ld_lld_test(
         name = "st_binary_links_with_fuse_ld_lld_test",
-        target_under_test = "//st/tests:trivial_binary",
+        target_under_test = "//tests:trivial_binary",
     )
     st_binary_without_program_skips_wrapper_test(
         name = "st_binary_without_program_skips_wrapper_test",
-        target_under_test = "//st/tests:no_program_binary",
+        target_under_test = "//tests:no_program_binary",
     )
 
     native.test_suite(

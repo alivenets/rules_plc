@@ -1,4 +1,4 @@
-load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
+load("@rules_cc//cc:defs.bzl", "cc_library")
 load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
 
 package(default_visibility = ["//visibility:public"])
@@ -25,12 +25,31 @@ echo "LLVM_SYS_211_PREFIX=$$LLVM_SYS_211_PREFIX" > $@
 """,
 )
 
-copy_file(
-    name = "target_c",
-    src = "@@rules_rust++crate+rusty_crates__llvm-sys-211.0.1//:wrappers/target.c",
-    out = "wrappers/target.c",
-    is_executable = False,
-    allow_symlink = False,
+# llvm-sys's own build.rs normally compiles wrappers/target.c itself (via the
+# cc crate, driven by `llvm-config --cflags`) as part of running the build
+# script. Compiling it as an ordinary cc_library instead means it goes
+# through Bazel's own C++ toolchain machinery directly -- no need to
+# replicate its default flags (e.g. the -imacros redacted_dates.h it always
+# injects) by hand in build.rs. Linked into the llvm-sys crate via
+# crate.annotation(link_deps = [...]) in MODULE.bazel.
+#
+# Referencing wrappers/target.c straight from the crate's own repo (rather
+# than copying it into this package first) needs that repo's own name --
+# "rusty_crates__<crate>-<version>" is crate_universe's documented naming
+# convention for per-crate repos, made available locally via this module's
+# own use_repo(crate, ...) instead of reaching for its (undocumented,
+# Bazel-internal) canonical form.
+cc_library(
+    name = "targetwrappers",
+    srcs = ["@rusty_crates__llvm-sys-211.0.1//:wrappers/target.c"],
+    copts = [
+        "-D_GNU_SOURCE",
+        "-DEXPERIMENTAL_KEY_INSTRUCTIONS",
+        "-D__STDC_CONSTANT_MACROS",
+        "-D__STDC_FORMAT_MACROS",
+        "-D__STDC_LIMIT_MACROS",
+    ],
+    deps = ["@llvm_toolchain_llvm//:clang_headers"],
 )
 
 cargo_build_script(
@@ -39,18 +58,8 @@ cargo_build_script(
     pkg_name = "llvm-sys",
     version = "211.0.1",
     edition = "2021",
-    deps = [
-        "@rusty_crates//:anyhow",
-        "@rusty_crates//:cc",
-        "@rusty_crates//:lazy_static",
-        "@rusty_crates//:regex",
-        "@rusty_crates//:semver",
-    ],
     data = [
-        "@llvm_toolchain_llvm//:bin/llvm-config",
         "@llvm_toolchain_llvm//:lib_archives",
-        ":target_c",
     ],
     build_script_env_files = [":llvm_prefix.txt"],
-    rustc_flags = ["--verbose"],
 )

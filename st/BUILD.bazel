@@ -2,3 +2,8 @@ toolchain_type(
     name = "toolchain_type",
     visibility = ["//visibility:public"],
 )
+
+exports_files([
+    "private/generate_headers.sh",
+    "private/dependencies.plc.h",
+])

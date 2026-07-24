@@ -1,4 +1,4 @@
-#include "st/tests/top_headers/top.h"
+#include "tests/top_st/top.h"
 #include "gtest/gtest.h"
 
 TEST(TransitiveDeps, LinksSymbolsFromEveryLevel) {

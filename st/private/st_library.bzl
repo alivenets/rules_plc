@@ -2,7 +2,7 @@
 
 load("@rules_cc//cc:find_cc_toolchain.bzl", "find_cc_toolchain", "use_cc_toolchain")
 load("//st:providers.bzl", "StInfo", "create_st_compilation_context", "create_st_linking_context", "merge_st_infos")
-load("//st:private/headers.bzl", "generate_st_headers")
+load("//st:private/headers.bzl", "GENERATE_HEADERS_ATTR", "generate_st_headers")
 
 def _st_library_impl(ctx):
     compiler = ctx.toolchains["//st:toolchain_type"].compiler
@@ -47,7 +47,7 @@ def _st_library_impl(ctx):
     # would skip compilation entirely rather than compile *and* emit headers.
     # With no -o, plc writes one .h per compiled module (named after that
     # module) into --header-output, instead of combining them into one file.
-    headers_dir = generate_st_headers(ctx, compiler, ctx.files.srcs + ctx.files.hdrs, dep_interfaces, "st_library")
+    headers_dir = generate_st_headers(ctx, compiler, ctx.files.srcs + ctx.files.hdrs, dep_interfaces)
 
     # Also export a plain CcInfo, wrapping the compiled object as a linkable
     # library, so non-ST rules (e.g. rust_test's deps) can depend on an
@@ -73,7 +73,7 @@ def _st_library_impl(ctx):
     # Also expose the generated headers on the CcInfo compilation context, so
     # a cc_test/cc_library depending on this st_library can #include the
     # plc-generated .h directly instead of hand-declaring extern "C"
-    # signatures -- as e.g. "{package}/{name}_headers/{module}.h", relative
+    # signatures -- as e.g. "{package}/{name}_st/{module}.h", relative
     # to the workspace/bin root, which every cc_* compile action already
     # searches by default. A bare `#include "{module}.h"` would risk silently
     # resolving to the wrong header if two libraries happen to compile
@@ -120,26 +120,29 @@ def _st_library_impl(ctx):
 
 st_library = rule(
     implementation = _st_library_impl,
-    attrs = {
-        "srcs": attr.label_list(
-            mandatory = True,
-            allow_files = [".st"],
-            doc = "ST source files implementing this library. Also serves as the interface exposed to targets depending on this library.",
-        ),
-        "hdrs": attr.label_list(
-            allow_files = [".dut", ".st"],
-            doc = "Full type/declaration files (e.g. .dut TYPE definitions) with no implementation of their own. Compiled alongside srcs and re-exported to dependents, who see them via -i only (never recompiling them).",
-        ),
-        "deps": attr.label_list(
-            providers = [StInfo],
-            doc = "Other st_library targets this library's implementation calls into.",
-        ),
-        "c_deps": attr.label_list(
-            providers = [CcInfo],
-            doc = "cc_library targets providing the native implementation of this library's {external} FUNCTION/FUNCTION_BLOCK declarations. Linked in by the final st_binary/st_test.",
-        ),
-        "_cc_toolchain": attr.label(default = Label("@rules_cc//cc:current_cc_toolchain")),
-    },
+    attrs = dict(
+        {
+            "srcs": attr.label_list(
+                mandatory = True,
+                allow_files = [".st"],
+                doc = "ST source files implementing this library. Also serves as the interface exposed to targets depending on this library.",
+            ),
+            "hdrs": attr.label_list(
+                allow_files = [".dut", ".st"],
+                doc = "Full type/declaration files (e.g. .dut TYPE definitions) with no implementation of their own. Compiled alongside srcs and re-exported to dependents, who see them via -i only (never recompiling them).",
+            ),
+            "deps": attr.label_list(
+                providers = [StInfo],
+                doc = "Other st_library targets this library's implementation calls into.",
+            ),
+            "c_deps": attr.label_list(
+                providers = [CcInfo],
+                doc = "cc_library targets providing the native implementation of this library's {external} FUNCTION/FUNCTION_BLOCK declarations. Linked in by the final st_binary/st_test.",
+            ),
+            "_cc_toolchain": attr.label(default = Label("@rules_cc//cc:current_cc_toolchain")),
+        },
+        **GENERATE_HEADERS_ATTR
+    ),
     toolchains = ["//st:toolchain_type"] + use_cc_toolchain(),
     fragments = ["cpp"],
     doc = "Compiles ST sources into a relocatable object, for linking into an st_binary/st_test or another st_library.",

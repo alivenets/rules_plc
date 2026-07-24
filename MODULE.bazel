@@ -68,6 +68,8 @@ http_archive(
     patches = [
         "//third_party/rusty:support-generic-data-types.patch",
         "//third_party/rusty:handle-VAR_EXTERNAL.patch",
+        "//third_party/rusty:more_any_natures.patch",
+        "//third_party/rusty:any_header_void_pointer.patch",
     ],
 )
 
@@ -77,18 +79,9 @@ crate.annotation(
     version = "211.0.1",
     repositories = ["rusty_crates"],
     gen_build_script = "on",
-    additive_build_file_content = """
-filegroup(
-    name = "target_c",
-    srcs = glob(["wrappers/*.c"]),
-    visibility = ["//visibility:public"],
-)
-""",
     build_script_data = [
         "//third_party/llvm-sys:llvm_prefix",
-        ":target_c",
     ],
-    build_script_data_glob = ["wrappers/*.c"],
     build_script_compile_data = ["//third_party/llvm-sys:llvm_sys_build_script"],
     build_script_rundir = "",
     override_target_build_script = "//third_party/llvm-sys:llvm_sys_build_script",
@@ -98,6 +91,14 @@ filegroup(
     # linking action, and the build only worked by the rustc action escaping
     # the sandbox to read the (user/machine-specific) Bazel output base path.
     data = ["@llvm_toolchain_llvm//:lib_archives"],
+    # wrappers/target.c is compiled as an ordinary cc_library (see
+    # //third_party/llvm-sys:BUILD.bazel) rather than by build.rs itself.
+    # Unlike override_target_build_script (a real attr.label, resolved
+    # relative to this module), link_deps is a plain string spliced into the
+    # generated BUILD file inside the llvm-sys crate's own repo, so it needs
+    # an explicit main-repo anchor -- a bare "//third_party/llvm-sys:..."
+    # would resolve relative to that repo instead of this one.
+    link_deps = ["@@//third_party/llvm-sys:targetwrappers"],
     label_injections = {
         "@llvm_toolchain_llvm": "@llvm_toolchain_llvm",
     },
@@ -108,9 +109,7 @@ crate.from_cargo(
     manifests = ["@rusty//:Cargo.toml"],
     generate_build_scripts = True,
 )
-use_repo(crate, "rusty_crates")
-
-http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
+use_repo(crate, "rusty_crates", "rusty_crates__llvm-sys-211.0.1")
 
 register_toolchains(
     "//third_party/rusty:plc",

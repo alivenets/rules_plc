@@ -1,4 +1,4 @@
-#include "examples/binary_using_library/doubler_headers/doubler.h"
+#include "examples/binary_using_library/doubler_st/doubler.h"
 #include "gtest/gtest.h"
 
 TEST(Doubler, DoublesItsInput) {

@@ -1,0 +1,36 @@
+--- a/compiler/plc_header_generator/src/header_generator/type_helper/type_helper_c.rs
++++ b/compiler/plc_header_generator/src/header_generator/type_helper/type_helper_c.rs
+@@ -3,7 +3,7 @@
+     type_helper::{determine_type_attribute, extract_string_size, TypeHelper, TypeInformation},
+     ExtendedTypeName,
+ };
+-use plc::typesystem::{DataType, DataTypeInformation, StringEncoding, BOOL_TYPE, REAL_SIZE};
++use plc::typesystem::{DataType, DataTypeInformation, StringEncoding, BOOL_TYPE, REAL_SIZE, VOID_INTERNAL_NAME};
+ use plc_ast::ast::TypeNature;
+ 
+ impl TypeHelper for GeneratedHeaderForC {
+@@ -141,6 +141,24 @@
+                     None,
+                 ),
+             },
++            // ANY/ANY_NUM/ANY_REAL/.../ANY_DUT are all represented as
++            // `POINTER TO __VOID` (an untyped pointer, no runtime type tag --
++            // see typesystem.rs's get_builtin_types()). The `*` is baked into
++            // the name here, rather than left to the by-ref formatting this
++            // module otherwise relies on for e.g. STRUCT parameters, since a
++            // pointer-typed VAR_INPUT isn't classified as by-ref (it's
++            // already a pointer at the type level).
++            DataTypeInformation::Pointer { inner_type_name, .. } if inner_type_name == VOID_INTERNAL_NAME => {
++                TypeInformation {
++                    name: format!("{C_VOID}*"),
++                    attribute: determine_type_attribute(
++                        extended_type_name.is_variadic,
++                        extended_type_name.is_sized_variadic,
++                        false,
++                        None,
++                    ),
++                }
++            }
+             _ => {
+                 log::debug!("{} this type is not yet supported!", extended_type_name.type_name);
+                 TypeInformation::new()

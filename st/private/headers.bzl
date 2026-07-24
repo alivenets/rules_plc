@@ -1,16 +1,14 @@
 """Shared helper for generating plc's C headers for a set of ST sources."""
 
-def generate_st_headers(ctx, compiler, sources, dep_interfaces, rule_kind):
+def generate_st_headers(ctx, compiler, sources, dep_interfaces):
     """Runs plc --generate-headers over `sources`, returning a directory (one
     generated .h per compiled module, named after that module, plus a
     dependencies.plc.h stub) usable as a compilation context's `includes`.
 
-    plc's own header template unconditionally #includes <dependencies.plc.h>
-    but never emits that file itself, so this also drops in a stub for it
-    alongside plc's own output -- it must land in the same directory as the
-    generated .h files since they share one -I include path.
+    Requires the calling rule to declare a `GENERATE_HEADERS_ATTR` attrs
+    (see st_library/st_binary's rule() attrs).
     """
-    headers_dir = ctx.actions.declare_directory(ctx.label.name + "_headers")
+    headers_dir = ctx.actions.declare_directory(ctx.label.name + "_st")
 
     header_args = ctx.actions.args()
     header_args.add(compiler.path)
@@ -19,24 +17,25 @@ def generate_st_headers(ctx, compiler, sources, dep_interfaces, rule_kind):
     header_args.add("--generate-headers")
     header_args.add("--header-output", headers_dir.path)
 
-    generate_headers_script = ctx.actions.declare_file(ctx.label.name + "_generate_headers.sh")
-    ctx.actions.write(
-        output = generate_headers_script,
-        content = """#!/usr/bin/env bash
-set -eu
-"$@"
-printf '// Stub for plc-generated headers, which unconditionally #include this;\\n// left empty as {rule_kind} has no extra dependency declarations to add.\\n' \\
-    > "{headers_dir}/dependencies.plc.h"
-""".format(headers_dir = headers_dir.path, rule_kind = rule_kind),
-        is_executable = True,
-    )
-
     ctx.actions.run(
-        executable = generate_headers_script,
-        arguments = [header_args],
-        inputs = depset([compiler] + sources, transitive = [dep_interfaces]),
+        executable = ctx.file._generate_headers_sh,
+        arguments = [headers_dir.path, ctx.file._dependencies_plc_h.path, header_args],
+        inputs = depset([compiler, ctx.file._dependencies_plc_h] + sources, transitive = [dep_interfaces]),
         outputs = [headers_dir],
         mnemonic = "StGenerateHeaders",
         progress_message = "Generating C headers for %{label}",
     )
     return headers_dir
+
+# Attach to a rule's attrs (via dict(..., **GENERATE_HEADERS_ATTR)) to make
+# generate_st_headers usable from that rule's implementation.
+GENERATE_HEADERS_ATTR = {
+    "_generate_headers_sh": attr.label(
+        default = Label("//st:private/generate_headers.sh"),
+        allow_single_file = True,
+    ),
+    "_dependencies_plc_h": attr.label(
+        default = Label("//st:private/dependencies.plc.h"),
+        allow_single_file = True,
+    ),
+}

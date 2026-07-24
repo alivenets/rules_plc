@@ -1,0 +1,61 @@
+--- a/src/typesystem.rs
++++ b/src/typesystem.rs
+@@ -99,6 +99,9 @@
+ pub const ANY_SIMPLE_TYPE: &str = "ANY_SIMPLE";
+ pub const ANY_BIT_TYPE: &str = "ANY_BIT";
+ pub const ANY_DUT_TYPE: &str = "ANY_DUT";
++pub const ANY_INT_TYPE: &str = "ANY_INT";
++pub const ANY_STRING_TYPE: &str = "ANY_STRING";
++pub const ANY_DATE_TYPE: &str = "ANY_DATE";
+ 
+ #[cfg(test)]
+ mod tests;
+@@ -1091,6 +1094,48 @@
+             location: SourceLocation::internal(),
+             linkage: LinkageType::BuiltIn,
+         },
++        DataType {
++            name: ANY_INT_TYPE.into(),
++            initial_value: None,
++            information: DataTypeInformation::Pointer {
++                name: ANY_INT_TYPE.into(),
++                inner_type_name: VOID_INTERNAL_NAME.into(),
++                auto_deref: None,
++                type_safe: false,
++                is_function: false,
++            },
++            nature: TypeNature::Int,
++            location: SourceLocation::internal(),
++            linkage: LinkageType::BuiltIn,
++        },
++        DataType {
++            name: ANY_STRING_TYPE.into(),
++            initial_value: None,
++            information: DataTypeInformation::Pointer {
++                name: ANY_STRING_TYPE.into(),
++                inner_type_name: VOID_INTERNAL_NAME.into(),
++                auto_deref: None,
++                type_safe: false,
++                is_function: false,
++            },
++            nature: TypeNature::String,
++            location: SourceLocation::internal(),
++            linkage: LinkageType::BuiltIn,
++        },
++        DataType {
++            name: ANY_DATE_TYPE.into(),
++            initial_value: None,
++            information: DataTypeInformation::Pointer {
++                name: ANY_DATE_TYPE.into(),
++                inner_type_name: VOID_INTERNAL_NAME.into(),
++                auto_deref: None,
++                type_safe: false,
++                is_function: false,
++            },
++            nature: TypeNature::Date,
++            location: SourceLocation::internal(),
++            linkage: LinkageType::BuiltIn,
++        },
+         DataType {
+             name: "__VLA".into(),
+             initial_value: None,
