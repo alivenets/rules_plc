@@ -21,11 +21,11 @@ py_binary(
 )
 
 # Renders library_stubs.c.jinja (a Jinja2 template) with the {external}
-# stubs found via plc's own AST -- see private/generate_library_stubs.py.
+# stubs found via plc's own AST -- see private/generate_weak_stubs.py.
 py_binary(
-    name = "generate_library_stubs",
-    srcs = ["private/generate_library_stubs.py"],
-    main = "private/generate_library_stubs.py",
+    name = "generate_weak_stubs",
+    srcs = ["private/generate_weak_stubs.py"],
+    main = "private/generate_weak_stubs.py",
     visibility = ["//visibility:public"],
     deps = ["@rules_plc_pip//jinja2"],
 )

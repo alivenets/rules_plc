@@ -1,4 +1,4 @@
-#include "examples/generics/generics_headers_st/generics.h"
+#include "tests/generics_headers_st/generics.h"
 
 #include "gtest/gtest.h"
 
@@ -30,6 +30,11 @@ TEST(Generics, AnyRealReinterpretsTheErasedPointerAsItsKnownConcreteType) {
 }
 
 TEST(Generics, AnyStringReinterpretsTheErasedPointerAsItsKnownConcreteType) {
+    // plc's STRING is a fixed-size char buffer, so a plain C string works.
+    // Unlike AnyIntValue/AnyNumValue above, AnyStringValue itself holds a
+    // pointer (to the char data), not the data inline, so first_char_via_
+    // any_string -- which reinterprets its argument as pointing directly at
+    // char data -- is passed v.string_, not &v.
     char s[] = "hello";
     AnyStringValue v;
     v.string_ = s;
