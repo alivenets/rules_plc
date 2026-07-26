@@ -1,6 +1,0 @@
-load("//st:defs.bzl", "st_binary")
-
-st_binary(
-    name = "program_app",
-    program = "st_cycle.st",
-)

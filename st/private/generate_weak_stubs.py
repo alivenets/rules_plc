@@ -12,7 +12,7 @@ library missing (or not yet given) a native implementation still links and
 runs -- as a no-op / zero value -- instead of failing at link time with an
 undefined reference far from the actual mistake.
 
-Usage: generate_library_stubs.py <out.c> <headers_dir> <template> <compiler> <src>...
+Usage: generate_weak_stubs.py <out.c> <headers_dir> <template> <compiler> <src>...
 """
 
 import json

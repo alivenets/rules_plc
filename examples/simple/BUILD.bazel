@@ -3,14 +3,14 @@ load("//st:defs.bzl", "st_binary")
 st_binary(
     name = "hello",
     program = "hello.st",
-    srcs = ["doubler.st"],
 )
 
 cc_test(
     name = "hello_test",
     srcs = ["hello_test.cc"],
+    data = [":hello"],
     deps = [
-        ":hello",
+        "@bazel_tools//tools/cpp/runfiles",
         "@googletest//:gtest_main",
     ],
 )

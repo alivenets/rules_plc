@@ -1,4 +1,4 @@
-load("//st:defs.bzl", "st_library")
+load("//st:defs.bzl", "st_binary", "st_library")
 
 st_library(
     name = "mathlib",
@@ -13,4 +13,15 @@ cc_test(
         ":mathlib",
         "@googletest//:gtest_main",
     ],
+)
+
+st_binary(
+    name = "doubler_app",
+    program = "doubler_app.st",
+    deps = [":mathlib"],
+)
+
+st_binary(
+    name = "st_cycle",
+    program = "st_cycle.st",
 )

@@ -38,12 +38,12 @@ def _st_library_stub_source_impl(ctx):
 
     stub_c = ctx.actions.declare_file(ctx.label.name + ".c")
     ctx.actions.run(
-        executable = ctx.executable._generate_library_stubs_py,
+        executable = ctx.executable._generate_weak_stubs_py,
         arguments = [stub_c.path, headers_dir.path, ctx.file._library_stubs_template.path, compiler.path] +
                     [f.path for f in sources],
         inputs = depset(sources + [headers_dir, compiler, ctx.file._library_stubs_template]),
         outputs = [stub_c],
-        mnemonic = "StGenerateLibraryStubs",
+        mnemonic = "StGenerateWeakStubs",
         progress_message = "Generating library {external} stubs for %{label}",
     )
 
@@ -62,8 +62,8 @@ _st_library_stub_source = rule(
             # (softly) in the impl.
             providers = [CcInfo],
         ),
-        "_generate_library_stubs_py": attr.label(
-            default = Label("//st:generate_library_stubs"),
+        "_generate_weak_stubs_py": attr.label(
+            default = Label("//st:generate_weak_stubs"),
             executable = True,
             cfg = "exec",
         ),

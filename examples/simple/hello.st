@@ -9,6 +9,5 @@ PROGRAM hello
 VAR
     x: DINT;
 END_VAR
-    x := doubler(x);
     puts('hello from rules_plc!$N');
 END_PROGRAM
