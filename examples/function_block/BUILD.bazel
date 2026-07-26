@@ -1,7 +1,5 @@
 load("//st:defs.bzl", "st_library")
 
-# A FUNCTION_BLOCK (stateful, instantiable POU) compiled as an st_library,
-# with a cc_test exercising an instance of it across multiple calls.
 st_library(
     name = "counter",
     srcs = ["counter.st"],
@@ -12,6 +10,21 @@ cc_test(
     srcs = ["counter_test.cc"],
     deps = [
         ":counter",
+        "@googletest//:gtest_main",
+    ],
+)
+
+st_library(
+    name = "totalizer",
+    srcs = ["totalizer.st"],
+    deps = [":counter"],
+)
+
+cc_test(
+    name = "totalizer_test",
+    srcs = ["totalizer_test.cc"],
+    deps = [
+        ":totalizer",
         "@googletest//:gtest_main",
     ],
 )

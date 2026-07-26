@@ -1,0 +1,202 @@
+--- a/compiler/plc_header_generator/src/header_generator/header_generator_c.rs
++++ b/compiler/plc_header_generator/src/header_generator/header_generator_c.rs
+@@ -1,5 +1,6 @@
+ use std::collections::HashMap;
+ 
++use plc::index::{Index, PouIndexEntry};
+ use plc::typesystem::{get_builtin_types, DataType, DINT_TYPE, LWORD_TYPE};
+ use plc_ast::ast::{
+     self, ArgumentProperty, CompilationUnit, Identifier, Implementation, LinkageType, Pou, PouType,
+@@ -48,12 +49,12 @@
+         &self.contents
+     }
+ 
+-    fn prepare_template_data(&mut self, compilation_unit: &CompilationUnit) {
++    fn prepare_template_data(&mut self, compilation_unit: &CompilationUnit, index: &Index) {
+         let builtin_types = get_builtin_types();
+ 
+-        self.prepare_global_variables(compilation_unit, &builtin_types);
+-        self.prepare_user_types(compilation_unit, &builtin_types);
+-        self.prepare_functions(compilation_unit, &builtin_types);
++        self.prepare_global_variables(compilation_unit, &builtin_types, index);
++        self.prepare_user_types(compilation_unit, &builtin_types, index);
++        self.prepare_functions(compilation_unit, &builtin_types, index);
+         self.resolve_alias_dependencies();
+     }
+ 
+@@ -99,7 +100,7 @@
+     }
+ 
+     /// Populates the self scoped [TemplateData] instance with the user types that should be added to the generated header file
+-    fn prepare_user_types(&mut self, compilation_unit: &CompilationUnit, builtin_types: &[DataType]) {
++    fn prepare_user_types(&mut self, compilation_unit: &CompilationUnit, builtin_types: &[DataType], index: &Index) {
+         for user_type in &compilation_unit.user_types {
+             if user_type.linkage.is_external_or_included() {
+                 continue;
+@@ -110,12 +111,13 @@
+                 builtin_types,
+                 &compilation_unit.user_types,
+                 &compilation_unit.pous,
++                index,
+             );
+         }
+     }
+ 
+     /// Populates the self scoped [TemplateData] instance with the global variables that should be added to the generated header file
+-    fn prepare_global_variables(&mut self, compilation_unit: &CompilationUnit, builtin_types: &[DataType]) {
++    fn prepare_global_variables(&mut self, compilation_unit: &CompilationUnit, builtin_types: &[DataType], index: &Index) {
+         self.template_data.global_variables = self.get_variables_from_variable_blocks(
+             &compilation_unit.global_vars,
+             builtin_types,
+@@ -123,11 +125,12 @@
+             &compilation_unit.user_types,
+             (&compilation_unit.pous, None),
+             false,
++            index,
+         );
+     }
+ 
+     /// Populates the self scoped [TemplateData] instance with the functions that should be added to the generated header file
+-    fn prepare_functions(&mut self, compilation_unit: &CompilationUnit, builtin_types: &[DataType]) {
++    fn prepare_functions(&mut self, compilation_unit: &CompilationUnit, builtin_types: &[DataType], index: &Index) {
+         for pou in &compilation_unit.pous {
+             if matches!(pou.kind, PouType::Init | PouType::ProjectInit) {
+                 continue;
+@@ -149,12 +152,13 @@
+                         &compilation_unit.user_types,
+                         builtin_types,
+                         &compilation_unit.pous,
++                        index,
+                     ) {
+                         self.template_data.functions.push(function);
+                     }
+                 }
+                 PouType::FunctionBlock => {
+-                    self.prepare_function_block(pou, compilation_unit, builtin_types, &compilation_unit.pous);
++                    self.prepare_function_block(pou, compilation_unit, builtin_types, &compilation_unit.pous, index);
+                 }
+                 PouType::Program => {
+                     let program_name = pou.name.to_string();
+@@ -167,7 +171,7 @@
+                         variable_type: VariableType::Default,
+                     });
+ 
+-                    self.prepare_function_block(pou, compilation_unit, builtin_types, &compilation_unit.pous);
++                    self.prepare_function_block(pou, compilation_unit, builtin_types, &compilation_unit.pous, index);
+                 }
+                 PouType::Method { parent, .. } => {
+                     let type_info = &self.get_type_name_for_type(
+@@ -196,6 +200,7 @@
+                         &compilation_unit.user_types,
+                         (&compilation_unit.pous, Some(&pou.kind)),
+                         true,
++                        index,
+                     ));
+ 
+                     self.template_data.functions.push(Function {
+@@ -234,6 +239,7 @@
+         user_types: &[UserTypeDeclaration],
+         builtin_types: &[DataType],
+         pous: &Vec<Pou>,
++        index: &Index,
+     ) -> Option<Function> {
+         match pou.kind {
+             PouType::Function => {
+@@ -254,6 +260,7 @@
+                     user_types,
+                     (pous, Some(&pou.kind)),
+                     true,
++                    index,
+                 );
+ 
+                 Some(Function {
+@@ -312,6 +319,7 @@
+         builtin_types: &[DataType],
+         user_types: &[UserTypeDeclaration],
+         pous: &Vec<Pou>,
++        index: &Index,
+     ) {
+         if !self.user_type_can_be_transformed_for_header(user_type, builtin_types) {
+             return;
+@@ -325,6 +333,7 @@
+                     false,
+                     user_types,
+                     pous,
++                    index,
+                 );
+ 
+                 self.template_data.user_defined_types.structs.push(UserType {
+@@ -453,6 +462,7 @@
+         compilation_unit: &CompilationUnit,
+         builtin_types: &[DataType],
+         pous: &Vec<Pou>,
++        index: &Index,
+     ) {
+         let type_info = &self.get_type_name_for_type(
+             &get_type_from_data_type_decleration(&pou.return_type, false),
+@@ -476,6 +486,7 @@
+             &compilation_unit.user_types,
+             (pous, Some(&pou.kind)),
+             true,
++            index,
+         );
+ 
+         if let Some(super_class) = &pou.super_class {
+@@ -549,6 +560,7 @@
+         user_types: &[UserTypeDeclaration],
+         (pous, pou_type): (&Vec<Pou>, Option<&PouType>),
+         include_external: bool,
++        index: &Index,
+     ) -> Vec<Variable> {
+         let mut variables: Vec<Variable> = Vec::new();
+ 
+@@ -571,6 +583,7 @@
+                     is_reference,
+                     user_types,
+                     pous,
++                    index,
+                 ));
+             }
+         }
+@@ -591,6 +604,7 @@
+         is_reference: bool,
+         user_types: &[UserTypeDeclaration],
+         pous: &Vec<Pou>,
++        index: &Index,
+     ) -> Vec<Variable> {
+         let mut variables: Vec<Variable> = Vec::new();
+         let mut reference_symbol = if is_reference { self.get_reference_symbol() } else { String::new() };
+@@ -639,7 +653,7 @@
+ 
+                             if let Some(pou) = option_pou {
+                                 if let Some(function) =
+-                                    self.get_function(pou, user_types, builtin_types, pous)
++                                    self.get_function(pou, user_types, builtin_types, pous, index)
+                                 {
+                                     let prototype_name = format!("{}_ptr", function.name);
+                                     let function_pointer_name = format!(
+@@ -689,6 +703,24 @@
+                             );
+                         }
+                     } else {
++                        // Not a DUT (get_user_generated_type_by_name only searches
++                        // user_types, i.e. DUTs, which are all this compilation unit's
++                        // own -- unlike `index`, which covers the whole project). If
++                        // it's a FUNCTION_BLOCK/PROGRAM instead -- even one declared in
++                        // another file, only brought in here via `-i` -- the field
++                        // references that POU's own generated struct, which (see
++                        // prepare_function_block above) is always named with
++                        // TYPE_APPEND, unlike the bare POU name here. PouIndexEntry's
++                        // own instance_struct_name is *not* that name -- it's the
++                        // compiler's internal (unsuffixed) struct name, unrelated to
++                        // this header-generation-only naming convention.
++                        let data_type = match index.find_pou(&type_name) {
++                            Some(PouIndexEntry::FunctionBlock { .. }) | Some(PouIndexEntry::Program { .. }) => {
++                                format!("{type_name}{TYPE_APPEND}{reference_symbol}")
++                            }
++                            _ => data_type,
++                        };
++
+                         variables.push(Variable {
+                             data_type,
+                             name: variable.get_name().to_string(),

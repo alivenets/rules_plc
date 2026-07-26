@@ -1,9 +1,31 @@
+load("@rules_python//python:py_binary.bzl", "py_binary")
+
 toolchain_type(
     name = "toolchain_type",
     visibility = ["//visibility:public"],
 )
 
 exports_files([
-    "private/generate_headers.sh",
-    "private/dependencies.plc.h",
+    "private/dependencies.plc.h.jinja",
+    "private/library_stubs.c.jinja",
 ])
+
+# Renders dependencies.plc.h (a Jinja2 template) after running plc
+# --generate-headers -- see private/generate_headers.py.
+py_binary(
+    name = "generate_headers",
+    srcs = ["private/generate_headers.py"],
+    main = "private/generate_headers.py",
+    visibility = ["//visibility:public"],
+    deps = ["@rules_plc_pip//jinja2"],
+)
+
+# Renders library_stubs.c.jinja (a Jinja2 template) with the {external}
+# stubs found via plc's own AST -- see private/generate_library_stubs.py.
+py_binary(
+    name = "generate_library_stubs",
+    srcs = ["private/generate_library_stubs.py"],
+    main = "private/generate_library_stubs.py",
+    visibility = ["//visibility:public"],
+    deps = ["@rules_plc_pip//jinja2"],
+)

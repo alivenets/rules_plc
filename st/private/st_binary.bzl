@@ -1,8 +1,8 @@
 """Implementation of the st_binary and st_test rules."""
 
 load("@rules_cc//cc:find_cc_toolchain.bzl", "find_cc_toolchain", "use_cc_toolchain")
-load("//st:providers.bzl", "StInfo", "merge_st_infos")
-load("//st:private/headers.bzl", "GENERATE_HEADERS_ATTR", "generate_st_headers")
+load("//st:providers.bzl", "StHeadersInfo", "StInfo", "merge_st_infos")
+load("//st:private/st_headers.bzl", "st_library_headers_gen")
 
 _MAIN_WRAPPER_TEMPLATE = """FUNCTION main : DINT
 VAR
@@ -12,38 +12,6 @@ END_VAR
     main := 0;
 END_FUNCTION
 """
-
-def _library_link_name(lib_file):
-    """Strips the lib prefix/extension plc's -l/-L (forwarded to the cc linker) expect."""
-    name = lib_file.basename
-    if name.startswith("lib"):
-        name = name[len("lib"):]
-    for ext in (".a", ".so", ".dylib", ".lib"):
-        if name.endswith(ext):
-            return name[:-len(ext)]
-    return name
-
-def _cc_libraries_to_link(cc_info):
-    """Flattens a CcInfo's linking_context into (library files, extra inputs, extra link args)."""
-    if cc_info == None:
-        return [], [], []
-    files = []
-    extra_inputs = []
-    link_args = []
-    for linker_input in cc_info.linking_context.linker_inputs.to_list():
-        link_args.extend(linker_input.user_link_flags)
-        extra_inputs.extend(linker_input.additional_inputs)
-        for library in linker_input.libraries:
-            lib_file = library.pic_static_library or library.static_library or library.dynamic_library or library.interface_library
-            if lib_file:
-                files.append(lib_file)
-
-                # plc's positional args must be ST sources or .o objects -- it tries to
-                # read anything else as ST source. Archives/shared libs go through -L/-l,
-                # which plc forwards straight through to the underlying cc linker.
-                link_args.append("-L" + lib_file.dirname)
-                link_args.append("-l" + _library_link_name(lib_file))
-    return files, extra_inputs, link_args
 
 def _compile(ctx, toolchain, out_suffix, sources, dep_interfaces, extra_interfaces = [], progress_verb = "object"):
     """Compiles `sources` (plus interfaces from deps and extra_interfaces) into a single
@@ -76,21 +44,12 @@ def _link(ctx, toolchain, own_objects):
     dep_info = merge_st_infos([dep[StInfo] for dep in ctx.attr.deps])
     dep_objects = dep_info.linking_context.objects
 
-    # c_deps implement {external} declarations natively; deps may also carry
-    # their own transitively-collected c_deps via dep_info.linking_context.cc_info.
-    own_cc_infos = [dep[CcInfo] for dep in ctx.attr.c_deps]
-    if dep_info.linking_context.cc_info != None:
-        own_cc_infos.append(dep_info.linking_context.cc_info)
-    cc_info = cc_common.merge_cc_infos(cc_infos = own_cc_infos) if own_cc_infos else None
-    cc_lib_files, cc_extra_inputs, cc_link_args = _cc_libraries_to_link(cc_info)
-
     out = ctx.actions.declare_file(ctx.label.name)
 
     args = ctx.actions.args()
     args.add_all(own_objects)
     args.add_all(dep_objects)
     args.add("-o", out)
-    args.add_all(cc_link_args)
     args.add("--linker", toolchain.linker.path)
     args.add("--fuse-ld", "lld")
 
@@ -98,7 +57,7 @@ def _link(ctx, toolchain, own_objects):
         executable = toolchain.compiler,
         arguments = [args],
         inputs = depset(
-            own_objects + cc_lib_files + cc_extra_inputs + [toolchain.linker],
+            own_objects + [toolchain.linker],
             transitive = [dep_objects],
         ),
         outputs = [out],
@@ -184,7 +143,7 @@ touch {marker}
     # st_binary directly to exercise FUNCTION/FUNCTION_BLOCK POUs defined in
     # its own srcs -- the same way st_library does for its own compiled
     # object. main_object is deliberately never part of this -- see above.
-    own_cc_infos = [dep[CcInfo] for dep in ctx.attr.deps] + [dep[CcInfo] for dep in ctx.attr.c_deps]
+    own_cc_infos = [dep[CcInfo] for dep in ctx.attr.deps]
     if pou_object != None:
         cc_toolchain = find_cc_toolchain(ctx)
         feature_configuration = cc_common.configure_features(
@@ -205,18 +164,11 @@ touch {marker}
             disallow_dynamic_library = True,
         )
 
-        # As with st_library, also expose plc's generated C headers for
-        # srcs/hdrs on the CcInfo compilation context, so a cc_test depending
-        # on this st_binary can #include them (as e.g.
-        # "{package}/{name}_st/{module}.h", relative to the
-        # workspace/bin root -- see st_library.bzl for why system_includes
-        # instead of quote_includes/includes).
-        pou_headers_dir = generate_st_headers(ctx, toolchain.compiler, own_pous, dep_interfaces)
-        own_compilation_context = cc_common.create_compilation_context(
-            headers = depset([pou_headers_dir]),
-            system_includes = depset([pou_headers_dir.path]),
-        )
-        own_cc_infos = [CcInfo(compilation_context = own_compilation_context, linking_context = own_linking_context)] + own_cc_infos
+        # Does not include plc's generated C headers -- this compile-only rule
+        # is wrapped, along with st_library_headers_gen, by the public
+        # st_binary macro below, which bundles both into one target (same
+        # pattern as st_library).
+        own_cc_infos = [CcInfo(linking_context = own_linking_context)] + own_cc_infos
     exported_cc_info = cc_common.merge_cc_infos(cc_infos = own_cc_infos)
 
     return [
@@ -230,30 +182,23 @@ touch {marker}
     ]
 
 
-_COMMON_ATTRS = dict(
-    {
-        "srcs": attr.label_list(
-            allow_files = [".st"],
-            doc = "Additional ST source files implementing FUNCTION/FUNCTION_BLOCK POUs local to this binary, compiled alongside program.",
-        ),
-        "hdrs": attr.label_list(
-            allow_files = [".dut", ".st"],
-            doc = "Full type/declaration files (e.g. .dut TYPE definitions) local to this binary, with no implementation of their own. Compiled alongside program.",
-        ),
-        "deps": attr.label_list(
-            providers = [StInfo],
-            doc = "st_library targets this binary's program calls into.",
-        ),
-        "c_deps": attr.label_list(
-            providers = [CcInfo],
-            doc = "cc_library targets providing the native implementation of this binary's own {external} FUNCTION/FUNCTION_BLOCK declarations.",
-        ),
-        "_cc_toolchain": attr.label(default = Label("@rules_cc//cc:current_cc_toolchain")),
-    },
-    **GENERATE_HEADERS_ATTR
-)
+_COMMON_ATTRS = {
+    "srcs": attr.label_list(
+        allow_files = [".st"],
+        doc = "Additional ST source files implementing FUNCTION/FUNCTION_BLOCK POUs local to this binary, compiled alongside program.",
+    ),
+    "hdrs": attr.label_list(
+        allow_files = [".dut", ".st"],
+        doc = "Full type/declaration files (e.g. .dut TYPE definitions) local to this binary, with no implementation of their own. Compiled alongside program.",
+    ),
+    "deps": attr.label_list(
+        providers = [StInfo],
+        doc = "st_library targets this binary's program calls into.",
+    ),
+    "_cc_toolchain": attr.label(default = Label("@rules_cc//cc:current_cc_toolchain")),
+}
 
-st_binary = rule(
+_st_binary = rule(
     implementation = _st_binary_impl,
     executable = True,
     attrs = dict(
@@ -265,6 +210,101 @@ st_binary = rule(
     ),
     toolchains = ["//st:toolchain_type"] + use_cc_toolchain(),
     fragments = ["cpp"],
-    doc = "Compiles a PROGRAM (plus any st_library deps) into a native executable, auto-generating the FUNCTION main entry point that runs it. If `program` is omitted, srcs/hdrs are linked as-is (one of them must define its own FUNCTION main).",
+    doc = "Compiles a PROGRAM (plus any st_library deps) into a native executable, auto-generating the FUNCTION main entry point that runs it. If `program` is omitted, srcs/hdrs are linked as-is (one of them must define its own FUNCTION main). Internal -- use the public st_binary macro below.",
 )
+
+def _st_binary_provider_fusion_impl(ctx):
+    binary_target = ctx.attr.binary
+    headers_target = ctx.attr.headers
+    binary_default_info = binary_target[DefaultInfo]
+
+    # An executable rule's DefaultInfo.executable must be a file this rule's
+    # own actions produced, not simply forwarded from binary_target -- so
+    # symlink to it instead of reusing binary_default_info.files_to_run
+    # directly.
+    executable = ctx.actions.declare_file(ctx.label.name)
+    ctx.actions.symlink(
+        output = executable,
+        target_file = binary_default_info.files_to_run.executable,
+        is_executable = True,
+    )
+
+    return [
+        DefaultInfo(
+            executable = executable,
+            files = depset([executable]),
+            runfiles = binary_default_info.default_runfiles,
+        ),
+        binary_target[OutputGroupInfo],
+        headers_target[StHeadersInfo],
+        cc_common.merge_cc_infos(cc_infos = [binary_target[CcInfo], headers_target[CcInfo]]),
+    ]
+
+_st_binary_provider_fusion = rule(
+    implementation = _st_binary_provider_fusion_impl,
+    executable = True,
+    attrs = {
+        "binary": attr.label(mandatory = True, executable = True, cfg = "target", providers = [CcInfo]),
+        "headers": attr.label(mandatory = True, providers = [CcInfo, StHeadersInfo]),
+    },
+    doc = "Combines an st_binary with its generated headers into one target, forwarding the binary's own DefaultInfo (so the fused target stays runnable/testable) and OutputGroupInfo (so its _validation actions -- e.g. StValidateProgram -- still run). Internal -- use the public st_binary macro below.",
+)
+
+def st_binary(name, srcs = [], hdrs = [], deps = [], program = None, visibility = None, **kwargs):
+    """Compiles a PROGRAM (plus any st_library deps) into a native executable, auto-generating the FUNCTION main entry point that runs it.
+
+    If srcs/hdrs are given, also generates and exports plc's C headers for
+    them (same as st_library), so a cc_test/cc_library depending on this
+    target can #include the plc-generated .h directly instead of hand-
+    declaring extern "C" signatures.
+
+    Args:
+        name: Name of this binary.
+        srcs: Additional ST source files implementing FUNCTION/FUNCTION_BLOCK
+            POUs local to this binary, compiled alongside program.
+        hdrs: Full type/declaration files (e.g. .dut TYPE definitions) local
+            to this binary, with no implementation of their own. Compiled
+            alongside program.
+        deps: st_library targets this binary's program calls into.
+        program: The .st file declaring the PROGRAM that is this binary's
+            cyclic entry point; the PROGRAM's name must match the file's
+            basename. st_binary generates and links in the FUNCTION main
+            wrapper that instantiates and calls it once -- do not write your
+            own FUNCTION main here. Optional: if omitted, srcs/hdrs are
+            linked as-is with no generated wrapper -- one of them must then
+            define its own FUNCTION main.
+        visibility: Visibility of this binary (the underlying compile-only/
+            headers-only targets stay private regardless).
+        **kwargs: Forwarded to the underlying compile-only rule.
+    """
+    bin_name = name + "_bin"
+    _st_binary(
+        name = bin_name,
+        srcs = srcs,
+        hdrs = hdrs,
+        deps = deps,
+        program = program,
+        visibility = ["//visibility:private"],
+        **kwargs
+    )
+    if not srcs and not hdrs:
+        # Nothing of this binary's own to generate headers for (its PROGRAM
+        # entry point, if any, is never exported -- see _st_binary_impl).
+        native.alias(name = name, actual = bin_name, visibility = visibility)
+        return
+
+    headers_gen_name = name + "_headers"
+    st_library_headers_gen(
+        name = headers_gen_name,
+        srcs = srcs,
+        hdrs = hdrs,
+        deps = deps,
+        visibility = ["//visibility:private"],
+    )
+    _st_binary_provider_fusion(
+        name = name,
+        binary = bin_name,
+        headers = headers_gen_name,
+        visibility = visibility,
+    )
 

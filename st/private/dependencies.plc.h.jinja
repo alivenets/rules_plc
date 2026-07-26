@@ -12,9 +12,9 @@
 //   - AnyRealValue:   ANY_REAL    (REAL/LREAL)
 //   - AnyStringValue: ANY_STRING  (STRING/WSTRING)
 //   - AnyNumValue:    ANY_NUM     (every ANY_INT and ANY_REAL member)
-// Copied byte-for-byte into every library's own headers dir (see
-// st/private/generate_headers.sh), so it carries no library-specific
-// declarations of its own.
+// Rendered into every library's own headers dir (see
+// st/private/generate_headers.py), so besides auto_includes below it carries
+// no library-specific declarations of its own.
 //
 // Every member name is suffixed with `_` (matching int_, which needs it to
 // avoid the `int` keyword) so that all IEC 61131-3 type names are spelled
@@ -80,5 +80,10 @@ typedef union {
     double lreal_;
 #endif
 } AnyNumValue;
-
+{% if auto_includes %}
+// Other (declaration-only) headers generated alongside this one.
+{% for name in auto_includes -%}
+#include "{{ name }}.h"
+{% endfor -%}
+{% endif -%}
 #endif /* !DEPENDENCIES_PLC_H_ */

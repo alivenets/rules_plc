@@ -1,8 +1,5 @@
 load("//st:defs.bzl", "st_library")
 
-# ANY/ANY_DUT: type-erased VAR_INPUT parameters (an untyped pointer, no
-# runtime type tag), reinterpreted inside the FUNCTION as a known concrete
-# type. See generics.st for the mechanics.
 st_library(
     name = "generics",
     srcs = ["generics.st"],

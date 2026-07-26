@@ -1,0 +1,18 @@
+--- a/compiler/plc_header_generator/src/header_generator/header_generator_c.rs
++++ b/compiler/plc_header_generator/src/header_generator/header_generator_c.rs
+@@ -132,7 +132,14 @@
+             if matches!(pou.kind, PouType::Init | PouType::ProjectInit) {
+                 continue;
+             }
+-            if pou.linkage.is_external_or_included() {
++            // Unlike Include (a dependency's interface, brought in via `-i`
++            // and already given a header entry by its owning module),
++            // External (an {external} POU with no ST implementation of its
++            // own, e.g. one backed by a native cc_library implementation)
++            // still gets a prototype here -- there's nowhere else it could
++            // come from, and callers need it to declare a matching library
++            // stub.
++            if pou.linkage.is_included() {
+                 continue;
+             }
+ 
