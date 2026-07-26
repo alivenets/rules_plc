@@ -70,6 +70,12 @@ http_archive(
         "//third_party/rusty:handle-VAR_EXTERNAL.patch",
         "//third_party/rusty:more_any_natures.patch",
         "//third_party/rusty:any_header_void_pointer.patch",
+        "//third_party/rusty:generate_headers_for_external.patch",
+        "//third_party/rusty:emit_ast_json_cli.patch",
+        "//third_party/rusty:emit_ast_json_pipelines.patch",
+        "//third_party/rusty:nested_function_block_type_name_trait.patch",
+        "//third_party/rusty:nested_function_block_type_name_c.patch",
+        "//third_party/rusty:nested_function_block_type_name_pipelines.patch",
     ],
 )
 
@@ -114,3 +120,20 @@ use_repo(crate, "rusty_crates", "rusty_crates__llvm-sys-211.0.1")
 register_toolchains(
     "//third_party/rusty:plc",
 )
+
+# Provides the Python interpreter + Jinja2 used to render dependencies.plc.h
+# (see st/private/generate_dependencies_plc_h.py) as a real template instead
+# of hand-rolled shell text surgery.
+bazel_dep(name = "rules_python", version = "2.2.0")
+
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(python_version = "3.12")
+use_repo(python, "python_3_12")
+
+pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
+pip.parse(
+    hub_name = "rules_plc_pip",
+    python_version = "3.12",
+    requirements_lock = "//third_party/python:requirements_lock.txt",
+)
+use_repo(pip, "rules_plc_pip")

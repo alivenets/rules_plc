@@ -1,6 +1,5 @@
 load("//st:defs.bzl", "st_binary")
 
-# A standalone st_binary with no library dependencies.
 st_binary(
     name = "hello",
     program = "hello.st",

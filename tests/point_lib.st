@@ -5,3 +5,4 @@ VAR_INPUT
 END_VAR
     make_point := x + y;
 END_FUNCTION
+// force-rebuild-marker

@@ -90,21 +90,27 @@ def _st_binary_without_program_skips_wrapper_test(ctx):
 st_binary_without_program_skips_wrapper_test = analysistest.make(_st_binary_without_program_skips_wrapper_test)
 
 def rules_test_suite(name):
+    # The public st_library/st_binary macros (st/private/st_library.bzl,
+    # st/private/st_binary.bzl) each split into a private "_lib"/"_bin"
+    # sub-target (registers the StCompile/StLink/etc. actions, provides
+    # StInfo) plus a headers sub-target, merged into the public name -- these
+    # tests check the compile-only rule's own registered actions/providers
+    # directly, so they target that private sub-target, not the public name.
     st_library_provides_st_info_test(
         name = "st_library_provides_st_info_test",
-        target_under_test = "//tests:point_lib",
+        target_under_test = "//tests:point_lib_lib",
     )
     st_library_merges_transitive_deps_test(
         name = "st_library_merges_transitive_deps_test",
-        target_under_test = "//tests:top",
+        target_under_test = "//tests:top_lib",
     )
     st_binary_links_with_fuse_ld_lld_test(
         name = "st_binary_links_with_fuse_ld_lld_test",
-        target_under_test = "//tests:trivial_binary",
+        target_under_test = "//tests:trivial_binary_bin",
     )
     st_binary_without_program_skips_wrapper_test(
         name = "st_binary_without_program_skips_wrapper_test",
-        target_under_test = "//tests:no_program_binary",
+        target_under_test = "//tests:no_program_binary_bin",
     )
 
     native.test_suite(

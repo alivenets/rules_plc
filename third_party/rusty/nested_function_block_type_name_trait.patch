@@ -1,0 +1,54 @@
+--- a/compiler/plc_header_generator/src/header_generator.rs
++++ b/compiler/plc_header_generator/src/header_generator.rs
+@@ -7,6 +7,7 @@
+     },
+     literals::AstLiteral,
+ };
++use plc::index::Index;
+ use plc_diagnostics::diagnostics::Diagnostic;
+ 
+ use crate::{
+@@ -45,7 +46,12 @@
+     ///
+     /// The outcome of this method must be a populated [TemplateData](crate::header_generator::template_helper::TemplateData) on the generated header
+     /// that contains all of the data necessary to run the templating engine.
+-    fn prepare_template_data(&mut self, compilation_unit: &CompilationUnit);
++    ///
++    /// `index` is the full project-wide symbol index (not just this compilation unit's own
++    /// POUs/user_types) -- needed to resolve types referenced from `compilation_unit` but
++    /// declared elsewhere (e.g. a FUNCTION_BLOCK-typed VAR whose FUNCTION_BLOCK is only
++    /// brought in via `-i`).
++    fn prepare_template_data(&mut self, compilation_unit: &CompilationUnit, index: &Index);
+ 
+     /// Runs the templating engine and generates the header file contents
+     ///
+@@ -66,10 +72,11 @@
+ pub fn get_generated_header(
+     generate_header_options: &GenerateHeaderOptions,
+     compilation_unit: &CompilationUnit,
++    index: &Index,
+ ) -> Result<Box<dyn GeneratedHeader>, Diagnostic> {
+     // Prepare the template data
+     let mut generated_header =
+-        prepare_template_data_for_header_generation(generate_header_options, compilation_unit)?;
++        prepare_template_data_for_header_generation(generate_header_options, compilation_unit, index)?;
+ 
+     // Generate the headers
+     generated_header.generate_headers()?;
+@@ -87,6 +94,7 @@
+ pub fn prepare_template_data_for_header_generation(
+     generate_header_options: &GenerateHeaderOptions,
+     compilation_unit: &CompilationUnit,
++    index: &Index,
+ ) -> Result<Box<dyn GeneratedHeader>, Diagnostic> {
+     let mut generated_header = get_empty_generated_header_from_options(generate_header_options)?;
+ 
+@@ -97,7 +105,7 @@
+     }
+ 
+     // Prepare the template data
+-    generated_header.prepare_template_data(compilation_unit);
++    generated_header.prepare_template_data(compilation_unit, index);
+ 
+     Ok(generated_header)
+ }

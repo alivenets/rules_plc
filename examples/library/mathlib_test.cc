@@ -1,4 +1,4 @@
-#include "examples/library/mathlib_st/mathlib.h"
+#include "examples/library/mathlib_headers_st/mathlib.h"
 #include "gtest/gtest.h"
 
 TEST(MathLib, AddsAndCountsCalls) {
