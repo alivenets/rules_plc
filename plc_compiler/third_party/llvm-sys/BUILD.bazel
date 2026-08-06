@@ -55,11 +55,11 @@ cc_library(
 cargo_build_script(
     name = "llvm_sys_build_script",
     srcs = ["build.rs"],
-    pkg_name = "llvm-sys",
-    version = "211.0.1",
-    edition = "2021",
+    build_script_env_files = [":llvm_prefix.txt"],
     data = [
         "@llvm_toolchain_llvm//:lib_archives",
     ],
-    build_script_env_files = [":llvm_prefix.txt"],
+    edition = "2021",
+    pkg_name = "llvm-sys",
+    version = "211.0.1",
 )

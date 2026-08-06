@@ -23,6 +23,7 @@ import sys
 
 import jinja2
 
+
 # A prototype line as plc's header generator emits it, e.g.
 # "int32_t fast_double(int32_t x);" -- captures the return type (everything
 # before the name) and the full "name(...)" signature tail separately.
@@ -104,7 +105,7 @@ def find_externals(compiler, sources):
 def stub_body(return_type):
     if return_type == "void":
         return "{}"
-    return "{ %s __ret = {0}; return __ret; }" % return_type
+    return f"{{ {return_type} __ret = {{0}}; return __ret; }}"
 
 
 def main():
@@ -117,7 +118,11 @@ def main():
     def header_text(module):
         if module not in headers:
             header_path = os.path.join(headers_dir, module + ".h")
-            headers[module] = open(header_path).read() if os.path.isfile(header_path) else None
+            if os.path.isfile(header_path):
+                with open(header_path) as f:
+                    headers[module] = f.read()
+            else:
+                headers[module] = None
         return headers[module]
 
     includes = []
@@ -141,15 +146,22 @@ def main():
         # way.
         for type_name in referenced_types:
             type_module = type_modules.get(type_name)
-            if type_module and type_module != module and type_module not in includes and header_text(type_module):
+            if (
+                type_module
+                and type_module != module
+                and type_module not in includes
+                and header_text(type_module)
+            ):
                 includes.append(type_module)
 
         return_type = match.group("return_type").strip()
-        stubs.append({
-            "return_type": return_type,
-            "signature": match.group("signature"),
-            "body": stub_body(return_type),
-        })
+        stubs.append(
+            {
+                "return_type": return_type,
+                "signature": match.group("signature"),
+                "body": stub_body(return_type),
+            }
+        )
 
     with open(template_path) as f:
         template = jinja2.Template(f.read(), keep_trailing_newline=True)

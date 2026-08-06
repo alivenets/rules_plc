@@ -1,8 +1,10 @@
 """Implementation of the st_binary and st_test rules."""
 
 load("@rules_cc//cc:find_cc_toolchain.bzl", "find_cc_toolchain", "use_cc_toolchain")
-load("//st:providers.bzl", "StHeadersInfo", "StInfo", "merge_st_infos")
+load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
+load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 load("//st:private/st_headers.bzl", "st_library_headers_gen")
+load("//st:providers.bzl", "StHeadersInfo", "StInfo", "merge_st_infos")
 
 _MAIN_WRAPPER_TEMPLATE = """FUNCTION main : DINT
 VAR
@@ -14,8 +16,7 @@ END_FUNCTION
 """
 
 def _compile(ctx, toolchain, out_suffix, sources, dep_interfaces, extra_interfaces = [], progress_verb = "object"):
-    """Compiles `sources` (plus interfaces from deps and extra_interfaces) into a single
-    relocatable object."""
+    """Compiles `sources` (plus interfaces from deps and extra_interfaces) into a single relocatable object."""
     out = ctx.actions.declare_file(ctx.label.name + out_suffix)
 
     args = ctx.actions.args()
@@ -181,7 +182,6 @@ touch {marker}
         exported_cc_info,
     ]
 
-
 _COMMON_ATTRS = {
     "srcs": attr.label_list(
         allow_files = [".st"],
@@ -308,4 +308,3 @@ def st_binary(name, srcs = [], hdrs = [], deps = [], program = None, visibility 
         headers = headers_gen_name,
         visibility = visibility,
     )
-

@@ -9,14 +9,13 @@ bazel_dep(name = "platforms", version = "0.0.11")
 bazel_dep(name = "rules_cc", version = "0.0.16")
 bazel_dep(name = "bazel_skylib", version = "1.7.1")
 bazel_dep(name = "toolchains_llvm", version = "1.8.0")
-
 single_version_override(
     module_name = "toolchains_llvm",
+    patch_strip = 1,
     patches = [
         "//third_party/toolchains_llvm:cc_library_clang_headers.patch",
         "//third_party/toolchains_llvm:llvm_static_libs.patch",
     ],
-    patch_strip = 1,
 )
 
 llvm = use_extension("@toolchains_llvm//toolchain/extensions:llvm.bzl", "llvm")
@@ -40,8 +39,8 @@ bazel_dep(name = "rules_rust", version = "0.71.3")
 # effect at all.
 single_version_override(
     module_name = "rules_rust",
-    patches = ["//third_party/rules_rust:allow-custom-build-script.patch"],
     patch_strip = 1,
+    patches = ["//third_party/rules_rust:allow-custom-build-script.patch"],
 )
 
 rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
@@ -61,10 +60,8 @@ http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "ht
 
 http_archive(
     name = "rusty",
-    url = "https://github.com/PLC-lang/rusty/archive/13500a827ba5ddb968225420aa9bb48a89547194.zip",
-    integrity = "sha256-unbRPnSDKkIEbc4zvOK/Q3J1IKQU3Iy6f0rqgpECAgQ=",
-    strip_prefix = "rusty-13500a827ba5ddb968225420aa9bb48a89547194",
     build_file = "//third_party/rusty:rusty.BUILD.bazel",
+    integrity = "sha256-unbRPnSDKkIEbc4zvOK/Q3J1IKQU3Iy6f0rqgpECAgQ=",
     patch_args = ["-p1"],
     patches = [
         "//third_party/rusty:support-generic-data-types.patch",
@@ -78,35 +75,38 @@ http_archive(
         "//third_party/rusty:nested_function_block_type_name_c.patch",
         "//third_party/rusty:nested_function_block_type_name_pipelines.patch",
     ],
+    strip_prefix = "rusty-13500a827ba5ddb968225420aa9bb48a89547194",
+    url = "https://github.com/PLC-lang/rusty/archive/13500a827ba5ddb968225420aa9bb48a89547194.zip",
 )
 
 crate = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
 crate.annotation(
-    crate = "llvm-sys",
-    version = "211.0.1",
-    repositories = ["rusty_crates"],
-    gen_build_script = "on",
+    build_script_compile_data = ["//third_party/llvm-sys:llvm_sys_build_script"],
     build_script_data = [
         "//third_party/llvm-sys:llvm_prefix",
     ],
-    build_script_compile_data = ["//third_party/llvm-sys:llvm_sys_build_script"],
     build_script_rundir = "",
-    override_target_build_script = "//third_party/llvm-sys:llvm_sys_build_script",
+    crate = "llvm-sys",
     # llvm-sys's rustc-link-search points at the LLVM toolchain's lib/ dir
     # (see //third_party/llvm-sys:build.rs); required for linking.
     data = ["@llvm_toolchain_llvm//:lib_archives"],
-    # wrappers/target.c is compiled as an ordinary cc_library (see
-    # //third_party/llvm-sys:BUILD.bazel), not by build.rs.
-    # Use canonical repo name for the label.
-    link_deps = ["@@//third_party/llvm-sys:targetwrappers"],
+    gen_build_script = "on",
     label_injections = {
         "@llvm_toolchain_llvm": "@llvm_toolchain_llvm",
     },
+    # wrappers/target.c is compiled as an ordinary cc_library (see
+    # //third_party/llvm-sys:BUILD.bazel), not by build.rs.
+    # Use canonical repo name for the label.
+    # buildifier: disable=canonical-repository
+    link_deps = ["@@//third_party/llvm-sys:targetwrappers"],
+    override_target_build_script = "//third_party/llvm-sys:llvm_sys_build_script",
+    repositories = ["rusty_crates"],
+    version = "211.0.1",
 )
 crate.from_cargo(
     name = "rusty_crates",
     cargo_lockfile = "@rusty//:Cargo.lock",
-    manifests = ["@rusty//:Cargo.toml"],
     generate_build_scripts = True,
+    manifests = ["@rusty//:Cargo.toml"],
 )
 use_repo(crate, "rusty_crates", "rusty_crates__llvm-sys-211.0.1")

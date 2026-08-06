@@ -6,7 +6,6 @@ against LLVM plus its transitive system libs (ffi, xml2, zlib, zstd), which
 inkwell/llvm-sys need but crate_universe doesn't resolve on its own.
 """
 
-load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_import", "cc_library")
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_proc_macro")
 load("@rusty_crates//:defs.bzl", "aliases", "all_crate_deps")
 
@@ -20,34 +19,46 @@ exports_files(["compiler/plc_llvm/src/cpp/llvm_wrapper.cpp"])
 
 rust_proc_macro(
     name = "plc_derive",
+    srcs = glob(["compiler/plc_derive/src/**/*.rs"]),
+    aliases = aliases(),
     crate_name = "plc_derive",
     crate_root = "compiler/plc_derive/src/lib.rs",
-    srcs = glob(["compiler/plc_derive/src/**/*.rs"]),
     edition = "2021",
-    aliases = aliases(),
-    deps = all_crate_deps(package_name = "compiler/plc_derive", normal = True),
-    proc_macro_deps = all_crate_deps(package_name = "compiler/plc_derive", proc_macro = True),
+    proc_macro_deps = all_crate_deps(
+        package_name = "compiler/plc_derive",
+        proc_macro = True,
+    ),
+    deps = all_crate_deps(
+        package_name = "compiler/plc_derive",
+        normal = True,
+    ),
 )
 
 rust_library(
     name = "plc_source",
+    srcs = glob(["compiler/plc_source/src/**/*.rs"]),
+    aliases = aliases(),
     crate_name = "plc_source",
     crate_root = "compiler/plc_source/src/lib.rs",
-    srcs = glob(["compiler/plc_source/src/**/*.rs"]),
     edition = "2021",
-    aliases = aliases(),
-    deps = all_crate_deps(package_name = "compiler/plc_source", normal = True),
+    deps = all_crate_deps(
+        package_name = "compiler/plc_source",
+        normal = True,
+    ),
 )
 
 rust_library(
     name = "plc_diagnostics",
+    srcs = glob(["compiler/plc_diagnostics/src/**/*.rs"]),
+    aliases = aliases(),
+    compile_data = glob(["compiler/plc_diagnostics/src/**/*.md"]),
     crate_name = "plc_diagnostics",
     crate_root = "compiler/plc_diagnostics/src/lib.rs",
-    srcs = glob(["compiler/plc_diagnostics/src/**/*.rs"]),
-    compile_data = glob(["compiler/plc_diagnostics/src/**/*.md"]),
     edition = "2021",
-    aliases = aliases(),
-    deps = all_crate_deps(package_name = "compiler/plc_diagnostics", normal = True) + [
+    deps = all_crate_deps(
+        package_name = "compiler/plc_diagnostics",
+        normal = True,
+    ) + [
         ":plc_ast",
         ":plc_source",
     ],
@@ -55,36 +66,45 @@ rust_library(
 
 rust_library(
     name = "plc_ast",
+    srcs = glob(["compiler/plc_ast/src/**/*.rs"]),
+    aliases = aliases(),
     crate_name = "plc_ast",
     crate_root = "compiler/plc_ast/src/lib.rs",
-    srcs = glob(["compiler/plc_ast/src/**/*.rs"]),
     edition = "2021",
-    aliases = aliases(),
-    deps = all_crate_deps(package_name = "compiler/plc_ast", normal = True) + [
+    proc_macro_deps = [":plc_derive"],
+    deps = all_crate_deps(
+        package_name = "compiler/plc_ast",
+        normal = True,
+    ) + [
         ":plc_source",
         ":plc_util",
     ],
-    proc_macro_deps = [":plc_derive"],
 )
 
 rust_library(
     name = "plc_util",
+    srcs = glob(["compiler/plc_util/src/**/*.rs"]),
+    aliases = aliases(),
     crate_name = "plc_util",
     crate_root = "compiler/plc_util/src/lib.rs",
-    srcs = glob(["compiler/plc_util/src/**/*.rs"]),
     edition = "2021",
-    aliases = aliases(),
-    deps = all_crate_deps(package_name = "compiler/plc_util", normal = True),
+    deps = all_crate_deps(
+        package_name = "compiler/plc_util",
+        normal = True,
+    ),
 )
 
 rust_library(
     name = "plc_index",
+    srcs = glob(["compiler/plc_index/src/**/*.rs"]),
+    aliases = aliases(),
     crate_name = "plc_index",
     crate_root = "compiler/plc_index/src/lib.rs",
-    srcs = glob(["compiler/plc_index/src/**/*.rs"]),
     edition = "2021",
-    aliases = aliases(),
-    deps = all_crate_deps(package_name = "compiler/plc_index", normal = True) + [
+    deps = all_crate_deps(
+        package_name = "compiler/plc_index",
+        normal = True,
+    ) + [
         ":plc_ast",
         ":plc_diagnostics",
         ":plc_source",
@@ -93,22 +113,28 @@ rust_library(
 
 rust_library(
     name = "section_mangler",
+    srcs = glob(["compiler/section_mangler/src/**/*.rs"]),
+    aliases = aliases(),
     crate_name = "section_mangler",
     crate_root = "compiler/section_mangler/src/lib.rs",
-    srcs = glob(["compiler/section_mangler/src/**/*.rs"]),
     edition = "2021",
-    aliases = aliases(),
-    deps = all_crate_deps(package_name = "compiler/section_mangler", normal = True),
+    deps = all_crate_deps(
+        package_name = "compiler/section_mangler",
+        normal = True,
+    ),
 )
 
 rust_library(
     name = "plc_xml",
+    srcs = glob(["compiler/plc_xml/src/**/*.rs"]),
+    aliases = {":plc_ast": "ast"},
     crate_name = "plc_xml",
     crate_root = "compiler/plc_xml/src/lib.rs",
-    srcs = glob(["compiler/plc_xml/src/**/*.rs"]),
     edition = "2021",
-    aliases = {":plc_ast": "ast"},
-    deps = all_crate_deps(package_name = "compiler/plc_xml", normal = True) + [
+    deps = all_crate_deps(
+        package_name = "compiler/plc_xml",
+        normal = True,
+    ) + [
         ":plc_ast",
         ":plc_compiler",
         ":plc_diagnostics",
@@ -118,13 +144,16 @@ rust_library(
 
 rust_library(
     name = "plc_project",
+    srcs = glob(["compiler/plc_project/src/**/*.rs"]),
+    aliases = {":plc_source": "source_code"},
+    compile_data = glob(["compiler/plc_project/schema/**/*"]),
     crate_name = "plc_project",
     crate_root = "compiler/plc_project/src/lib.rs",
-    srcs = glob(["compiler/plc_project/src/**/*.rs"]),
-    compile_data = glob(["compiler/plc_project/schema/**/*"]),
     edition = "2021",
-    aliases = {":plc_source": "source_code"},
-    deps = all_crate_deps(package_name = "compiler/plc_project", normal = True) + [
+    deps = all_crate_deps(
+        package_name = "compiler/plc_project",
+        normal = True,
+    ) + [
         ":plc_compiler",
         ":plc_diagnostics",
         ":plc_source",
@@ -133,28 +162,34 @@ rust_library(
 
 rust_library(
     name = "plc_llvm",
+    srcs = glob(["compiler/plc_llvm/src/**/*.rs"]),
+    aliases = aliases(),
     crate_name = "plc_llvm",
     crate_root = "compiler/plc_llvm/src/lib.rs",
-    srcs = glob(["compiler/plc_llvm/src/**/*.rs"]),
     edition = "2021",
-    aliases = aliases(),
-    deps = all_crate_deps(package_name = "compiler/plc_llvm", normal = True) + [
+    deps = all_crate_deps(
+        package_name = "compiler/plc_llvm",
+        normal = True,
+    ) + [
         ":plc_ast",
-        ":plc_source",
         ":plc_diagnostics",
         ":plc_index",
+        ":plc_source",
         ":section_mangler",
     ],
 )
 
 rust_library(
     name = "plc_lowering",
+    srcs = glob(["compiler/plc_lowering/src/**/*.rs"]),
+    aliases = aliases(),
     crate_name = "plc_lowering",
     crate_root = "compiler/plc_lowering/src/lib.rs",
-    srcs = glob(["compiler/plc_lowering/src/**/*.rs"]),
     edition = "2021",
-    aliases = aliases(),
-    deps = all_crate_deps(package_name = "compiler/plc_lowering", normal = True) + [
+    deps = all_crate_deps(
+        package_name = "compiler/plc_lowering",
+        normal = True,
+    ) + [
         ":plc_ast",
         ":plc_compiler",
         ":plc_diagnostics",
@@ -165,13 +200,16 @@ rust_library(
 
 rust_library(
     name = "plc_header_generator",
+    srcs = glob(["compiler/plc_header_generator/src/**/*.rs"]),
+    aliases = aliases(),
+    compile_data = glob(["compiler/plc_header_generator/src/**/*.h"]),
     crate_name = "plc_header_generator",
     crate_root = "compiler/plc_header_generator/src/lib.rs",
-    srcs = glob(["compiler/plc_header_generator/src/**/*.rs"]),
-    compile_data = glob(["compiler/plc_header_generator/src/**/*.h"]),
     edition = "2021",
-    aliases = aliases(),
-    deps = all_crate_deps(package_name = "compiler/plc_header_generator", normal = True) + [
+    deps = all_crate_deps(
+        package_name = "compiler/plc_header_generator",
+        normal = True,
+    ) + [
         ":plc_ast",
         ":plc_compiler",
         ":plc_diagnostics",
@@ -181,12 +219,16 @@ rust_library(
 
 rust_library(
     name = "plc_compiler",
+    srcs = glob(["src/**/*.rs"]),
+    aliases = aliases(),
     crate_name = "plc",
     crate_root = "src/lib.rs",
-    srcs = glob(["src/**/*.rs"]),
     edition = "2021",
-    aliases = aliases(),
-    deps = all_crate_deps(package_name = "", normal = True) + [
+    proc_macro_deps = [":plc_derive"],
+    deps = all_crate_deps(
+        package_name = "",
+        normal = True,
+    ) + [
         ":plc_ast",
         ":plc_diagnostics",
         ":plc_index",
@@ -195,22 +237,24 @@ rust_library(
         ":plc_util",
         ":section_mangler",
     ],
-    proc_macro_deps = [":plc_derive"],
 )
 
 rust_library(
     name = "plc_driver_lib",
-    crate_name = "plc_driver",
-    crate_root = "compiler/plc_driver/src/lib.rs",
     srcs = glob(["compiler/plc_driver/src/**/*.rs"]),
-    edition = "2021",
     aliases = {
         ":plc_ast": "ast",
         ":plc_project": "project",
         ":plc_source": "source_code",
         ":plc_xml": "cfc",
     },
-    deps = all_crate_deps(package_name = "compiler/plc_driver", normal = True) + [
+    crate_name = "plc_driver",
+    crate_root = "compiler/plc_driver/src/lib.rs",
+    edition = "2021",
+    deps = all_crate_deps(
+        package_name = "compiler/plc_driver",
+        normal = True,
+    ) + [
         ":plc_ast",
         ":plc_compiler",
         ":plc_diagnostics",
@@ -226,29 +270,32 @@ rust_library(
 
 rust_binary(
     name = "plc",
-    crate_root = "compiler/plc_driver/src/main.rs",
     srcs = ["compiler/plc_driver/src/main.rs"],
-    edition = "2021",
-    # Bazel's generated _solib_*/ symlink dirs (see link_deps below) only
-    # exist inside this build's own output tree -- $ORIGIN instead makes plc
-    # look for its .so companions next to itself once copied elsewhere
-    # See release.sh.
-    rustc_flags = ["-Clink-args=-Wl,-rpath,$$ORIGIN"],
-    deps = all_crate_deps(package_name = "compiler/plc_driver", normal = True) + [
-        ":plc_driver_lib",
-    ],
+    crate_root = "compiler/plc_driver/src/main.rs",
     data = [
         "@plc_compiler//third_party/rusty:libffi.so",
-        "@plc_compiler//third_party/rusty:libzstd.so",
+        "@plc_compiler//third_party/rusty:libllvm_wrapper.so",
         "@plc_compiler//third_party/rusty:libxml2.so",
         "@plc_compiler//third_party/rusty:libz.so",
-        "@plc_compiler//third_party/rusty:libllvm_wrapper.so",
+        "@plc_compiler//third_party/rusty:libzstd.so",
     ],
+    edition = "2021",
     link_deps = [
         "@plc_compiler//third_party/rusty:ffi",
         "@plc_compiler//third_party/rusty:zstd",
         "@plc_compiler//third_party/rusty:xml2",
         "@plc_compiler//third_party/rusty:zlib",
         "@plc_compiler//third_party/rusty:llvm_wrapper",
+    ],
+    # Bazel's generated _solib_*/ symlink dirs (see link_deps below) only
+    # exist inside this build's own output tree -- $ORIGIN instead makes plc
+    # look for its .so companions next to itself once copied elsewhere
+    # See release.sh.
+    rustc_flags = ["-Clink-args=-Wl,-rpath,$$ORIGIN"],
+    deps = all_crate_deps(
+        package_name = "compiler/plc_driver",
+        normal = True,
+    ) + [
+        ":plc_driver_lib",
     ],
 )

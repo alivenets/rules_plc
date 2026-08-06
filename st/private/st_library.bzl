@@ -1,8 +1,10 @@
 """Implementation of the st_library rule."""
 
 load("@rules_cc//cc:find_cc_toolchain.bzl", "find_cc_toolchain", "use_cc_toolchain")
-load("//st:providers.bzl", "StHeadersInfo", "StInfo", "create_st_compilation_context", "create_st_linking_context", "merge_st_infos")
+load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
+load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 load("//st:private/st_headers.bzl", "st_library_headers_gen")
+load("//st:providers.bzl", "StHeadersInfo", "StInfo", "create_st_compilation_context", "create_st_linking_context", "merge_st_infos")
 
 def _st_library_impl(ctx):
     toolchain = ctx.toolchains["//st:toolchain_type"]
@@ -57,6 +59,7 @@ def _st_library_impl(ctx):
         ),
         disallow_dynamic_library = True,
     )
+
     # Does not include plc's generated C headers -- this compile-only rule is
     # wrapped, along with st_library_headers_gen, by the public st_library
     # macro below, which bundles both into one target.

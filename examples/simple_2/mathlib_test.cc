@@ -11,6 +11,4 @@ TEST(MathLib, AddsAndCountsCalls) {
     EXPECT_EQ(inst.call_count, 2);
 }
 
-TEST(Doubler, DoublesItsInput) {
-    EXPECT_EQ(st_double(21), 42);
-}
+TEST(Doubler, DoublesItsInput) { EXPECT_EQ(st_double(21), 42); }

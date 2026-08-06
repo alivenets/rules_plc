@@ -7,25 +7,36 @@ target -- reused by the public st_library and st_binary macros
 headers automatically.
 """
 
+load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
+load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 load("//st:providers.bzl", "StHeadersInfo", "StInfo", "merge_st_infos")
 
 def generate_st_headers(ctx, compiler, sources, dep_interfaces, auto_include_sources = []):
-    """Runs plc --generate-headers over `sources`, returning a directory (one
-    generated .h per compiled module, named after that module, plus a
-    dependencies.plc.h stub) usable as a compilation context's `includes`.
+    """Runs plc --generate-headers over `sources`.
 
-    `auto_include_sources` (a subset of `sources`) makes dependencies.plc.h
-    #include those modules' own generated headers automatically -- so any of
-    `sources`' headers pulls them in transitively (every generated header
-    already #includes <dependencies.plc.h> unconditionally as its own first
-    include), instead of requiring consumers to work out and apply the right
-    #include order themselves. Must be declaration-only (e.g. hdrs/DUTs) --
-    a module that itself references *other* modules in `sources` risks an
-    #include-order hazard if auto-included this way (see
-    st/private/generate_headers.py).
+    Returns a directory (one generated .h per compiled module, named after
+    that module, plus a dependencies.plc.h stub) usable as a compilation
+    context's `includes`. Requires the calling rule to declare
+    `_generate_headers_py` and `_dependencies_plc_h` attrs (see
+    st_library_headers_gen's below).
 
-    Requires the calling rule to declare `_generate_headers_py` and
-    `_dependencies_plc_h` attrs (see st_library_headers_gen's below).
+    Args:
+      ctx: the calling rule's context.
+      compiler: the plc compiler executable File.
+      sources: ST source Files to generate headers for.
+      dep_interfaces: depset of interface Files from deps, passed as -i.
+      auto_include_sources: subset of `sources` to have dependencies.plc.h
+        #include automatically -- so any of `sources`' headers pulls them in
+        transitively (every generated header already #includes
+        <dependencies.plc.h> unconditionally as its own first include),
+        instead of requiring consumers to work out the right #include order
+        themselves. Must be declaration-only (e.g. hdrs/DUTs) -- a module
+        that itself references *other* modules in `sources` risks an
+        #include-order hazard if auto-included this way (see
+        st/private/generate_headers.py).
+
+    Returns:
+      The declared headers directory File.
     """
     headers_dir = ctx.actions.declare_directory(ctx.label.name + "_st")
 

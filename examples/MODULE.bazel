@@ -31,14 +31,14 @@ http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "ht
 
 http_archive(
     name = "plc_linux_x86_64",
-    url = "https://github.com/alivenets/rules_plc/releases/download/0.1.2/plc-linux-x86_64.tar.gz",
-    sha256 = "2d27e31c7a31aac4c75b662319d8cf66f21cc303fcf80ff076621ad316bdd165",
-    strip_prefix = "plc-linux-x86_64",
     build_file_content = """
 package(default_visibility = ["//visibility:public"])
 exports_files(["plc"])
 filegroup(name = "runtime_libs", srcs = glob(["*.so"]))
 """,
+    sha256 = "2d27e31c7a31aac4c75b662319d8cf66f21cc303fcf80ff076621ad316bdd165",
+    strip_prefix = "plc-linux-x86_64",
+    url = "https://github.com/alivenets/rules_plc/releases/download/0.1.2/plc-linux-x86_64.tar.gz",
 )
 
 register_toolchains("//:plc")

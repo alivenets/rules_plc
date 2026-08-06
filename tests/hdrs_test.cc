@@ -7,6 +7,4 @@
 
 #include "gtest/gtest.h"
 
-TEST(Hdrs, MakePointUsesDutTypeAcrossCompileUnits) {
-    EXPECT_EQ(make_point(4, 6), 10);
-}
+TEST(Hdrs, MakePointUsesDutTypeAcrossCompileUnits) { EXPECT_EQ(make_point(4, 6), 10); }

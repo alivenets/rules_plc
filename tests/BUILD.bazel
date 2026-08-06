@@ -1,3 +1,5 @@
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//st:defs.bzl", "st_binary", "st_library")
 load(":rules_test.bzl", "rules_test_suite")
 

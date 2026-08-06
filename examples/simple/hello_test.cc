@@ -3,8 +3,8 @@
 #include <memory>
 #include <string>
 
-#include "gtest/gtest.h"
 #include "tools/cpp/runfiles/runfiles.h"
+#include "gtest/gtest.h"
 
 using bazel::tools::cpp::runfiles::Runfiles;
 
@@ -13,11 +13,11 @@ using bazel::tools::cpp::runfiles::Runfiles;
 // binding end to end.
 TEST(Hello, PrintsGreetingWhenRun) {
     std::string error;
-    std::unique_ptr<Runfiles> runfiles(Runfiles::CreateForTest(&error));
+    auto runfiles = std::make_unique<Runfiles>(Runfiles::CreateForTest(&error));
     ASSERT_NE(runfiles, nullptr) << error;
 
     std::string hello_path = runfiles->Rlocation("_main/simple/hello");
-    FILE* pipe = popen((hello_path + " 2>&1").c_str(), "r");
+    FILE *pipe = popen((hello_path + " 2>&1").c_str(), "r");
     ASSERT_NE(pipe, nullptr);
 
     std::string output;

@@ -6,6 +6,7 @@ contributes to the final link), with a merge helper mirroring
 cc_common.merge_cc_infos.
 """
 
+# buildifier: disable=name-conventions
 StCompilationContext = provider(
     doc = "Interface files a target exposes to dependents at compile time.",
     fields = {
@@ -13,6 +14,7 @@ StCompilationContext = provider(
     },
 )
 
+# buildifier: disable=name-conventions
 StLinkingContext = provider(
     doc = "Objects a target contributes to the final link.",
     fields = {

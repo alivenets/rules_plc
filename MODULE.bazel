@@ -6,8 +6,12 @@ module(
 bazel_dep(name = "platforms", version = "0.0.11")
 bazel_dep(name = "rules_cc", version = "0.0.16")
 bazel_dep(name = "bazel_skylib", version = "1.7.1")
+
 bazel_dep(name = "toolchains_llvm", version = "1.8.0", dev_dependency = True)
+
 bazel_dep(name = "googletest", version = "1.15.2")
+
+bazel_dep(name = "rules_shell", version = "0.8.0", dev_dependency = True)
 
 # C++ toolchain for st_library/st_binary's CcInfo side and st_toolchain's
 # default linker -- dev-only because toolchains_llvm's extension fails for
@@ -25,19 +29,24 @@ http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "ht
 
 http_archive(
     name = "plc_linux_x86_64",
-    url = "https://github.com/alivenets/rules_plc/releases/download/0.1.2/plc-linux-x86_64.tar.gz",
-    sha256 = "2d27e31c7a31aac4c75b662319d8cf66f21cc303fcf80ff076621ad316bdd165",
-    strip_prefix = "plc-linux-x86_64",
     build_file_content = """
 package(default_visibility = ["//visibility:public"])
 exports_files(["plc"])
 filegroup(name = "runtime_libs", srcs = glob(["*.so"]))
 """,
+    sha256 = "2d27e31c7a31aac4c75b662319d8cf66f21cc303fcf80ff076621ad316bdd165",
+    strip_prefix = "plc-linux-x86_64",
+    url = "https://github.com/alivenets/rules_plc/releases/download/0.1.2/plc-linux-x86_64.tar.gz",
 )
 
 bazel_dep(name = "rules_python", version = "2.2.0")
 
-_PYTHON_VERSIONS = ["3.10", "3.11", "3.12"]
+_PYTHON_VERSIONS = [
+    "3.10",
+    "3.11",
+    "3.12",
+]
+
 _DEFAULT_PYTHON_VERSION = "3.12"
 
 python = use_extension("@rules_python//python/extensions:python.bzl", "python")

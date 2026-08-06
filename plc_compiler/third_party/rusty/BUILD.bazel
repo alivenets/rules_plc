@@ -7,7 +7,7 @@ package(default_visibility = ["//visibility:public"])
 # those canonical names, so extract/build them here for the final `plc` link.
 genrule(
     name = "libffi_so_src",
-    srcs = ["@libffi//:libffi"],
+    srcs = ["@libffi"],
     outs = ["libffi.so"],
     cmd = """
 set -eu
@@ -39,7 +39,7 @@ exit 1
 
 genrule(
     name = "libz_so_src",
-    srcs = ["@zlib//:zlib"],
+    srcs = ["@zlib"],
     outs = ["libz.so"],
     cmd = """
 set -eu
@@ -55,7 +55,7 @@ exit 1
 
 genrule(
     name = "libzstd_so_src",
-    srcs = ["@zstd//:zstd"],
+    srcs = ["@zstd"],
     outs = ["libzstd.so"],
     cmd = """
 set -eu
@@ -106,8 +106,8 @@ cc_library(
     srcs = ["@rusty//:compiler/plc_llvm/src/cpp/llvm_wrapper.cpp"],
     copts = ["-fPIC"],
     linkopts = ["-Wl,--no-as-needed"],
-    alwayslink = True,
     deps = ["@llvm_toolchain_llvm//:clang_headers"],
+    alwayslink = True,
 )
 
 cc_binary(
@@ -132,9 +132,9 @@ filegroup(
     name = "plc_runtime_libs",
     srcs = [
         ":libffi.so",
+        ":libllvm_wrapper.so",
         ":libxml2.so",
         ":libz.so",
         ":libzstd.so",
-        ":libllvm_wrapper.so",
     ],
 )
