@@ -7,7 +7,7 @@
 +pub const ANY_INT_TYPE: &str = "ANY_INT";
 +pub const ANY_STRING_TYPE: &str = "ANY_STRING";
 +pub const ANY_DATE_TYPE: &str = "ANY_DATE";
- 
+
  #[cfg(test)]
  mod tests;
 @@ -1091,6 +1094,48 @@

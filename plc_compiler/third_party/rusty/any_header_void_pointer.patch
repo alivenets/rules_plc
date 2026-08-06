@@ -7,7 +7,7 @@
 -use plc::typesystem::{DataType, DataTypeInformation, StringEncoding, BOOL_TYPE, REAL_SIZE};
 +use plc::typesystem::{DataType, DataTypeInformation, StringEncoding, BOOL_TYPE, REAL_SIZE, VOID_INTERNAL_NAME};
  use plc_ast::ast::TypeNature;
- 
+
  impl TypeHelper for GeneratedHeaderForC {
 @@ -141,6 +141,24 @@
                      None,

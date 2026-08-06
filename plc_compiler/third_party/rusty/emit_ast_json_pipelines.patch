@@ -3,7 +3,7 @@
 @@ -424,6 +424,11 @@
              return Ok(());
          }
- 
+
 +        if self.compile_parameters.as_ref().is_some_and(|opt| opt.print_ast_json) {
 +            println!("{}", serde_json::to_string_pretty(&parsed_project.units).expect("AST is always serializable"));
 +            return Ok(());
@@ -11,4 +11,3 @@
 +
          // 2. Index
          let indexed_project = self.index(parsed_project)?;
- 

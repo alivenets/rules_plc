@@ -5,7 +5,7 @@ index e2463d3d45..baf18e7ad4 100644
 @@ -62,6 +62,37 @@ fn external_file_global_var() {
      filtered_assert_snapshot!(results.join("\n"));
  }
- 
+
 +#[test]
 +fn external_file_global_function_block_var_referenced_via_var_external() {
 +    let prog = SourceCode::new(
@@ -69,7 +69,7 @@ index 46f8543f30..00d2e0bc9e 100644
  use lazy_static::lazy_static;
 @@ -304,8 +304,16 @@ lazy_static! {
                              .get_name();
- 
+
                          // return size of llvm type
 -                        let size = generator.llvm_index
 -                            .get_associated_type(type_name)?.size_of()
@@ -89,7 +89,7 @@ index 46f8543f30..00d2e0bc9e 100644
 @@ -684,6 +692,17 @@ lazy_static! {
      ]);
  }
- 
+
 +fn contains_scalable_vector(ty: BasicTypeEnum<'_>) -> bool {
 +    match ty {
 +        BasicTypeEnum::ScalableVectorType(_) => true,
@@ -111,7 +111,7 @@ index dd33d46e0c..33f6d4b9f2 100644
 @@ -37,6 +37,7 @@ use std::collections::VecDeque;
  use super::ADDRESS_SPACE_GENERIC;
  use super::{expression_generator::ExpressionCodeGenerator, llvm::Llvm};
- 
+
 +
  pub struct DataTypeGenerator<'ink, 'b> {
      llvm: &'b Llvm<'ink>,
@@ -141,19 +141,19 @@ index a715f551e8..610da535a6 100644
 @@ -467,14 +467,14 @@ impl<'a> Llvm<'a> {
          let (qualified_name, type_name, location) = variable;
          let variable_llvm_type = llvm_index.get_associated_type(type_name)?;
- 
+
 +        let variable_data_type = index.get_effective_type_or_void_by_name(type_name);
 +        let v_type_info = variable_data_type.get_type_information();
 +
          let type_size = variable_llvm_type
              .size_of()
              .ok_or_else(|| Diagnostic::codegen_error("Couldn't determine type size", location));
- 
+
          // initialize the variable with the initial_value
 -        let variable_data_type = index.get_effective_type_or_void_by_name(type_name);
 -
 -        let v_type_info = variable_data_type.get_type_information();
- 
+
          const DEFAULT_ALIGNMENT: u32 = 1;
          let initializer_statement = initializer_statement.and_then(|stmt| {
 @@ -556,3 +556,4 @@ impl<'a> Llvm<'a> {
@@ -184,9 +184,9 @@ index 42973e0cb7..6b2b4b2f15 100644
 +use inkwell::{module::Module, values::GlobalValue};use plc_ast::ast::LinkageType;
  use plc_diagnostics::diagnostics::Diagnostic;
  use section_mangler::SectionMangler;
- 
+
 @@ -201,4 +200,5 @@ impl<'ctx, 'b> VariableGenerator<'ctx, 'b> {
- 
+
          Ok(global_ir_variable)
      }
 +
@@ -198,7 +198,7 @@ index 9b674960b0..bcfe7d80f8 100644
 @@ -1295,6 +1295,12 @@ pub struct Index {
      /// All global variables
      global_variables: SymbolMap<String, VariableIndexEntry>,
- 
+
 +    /// Shadow entries for VAR_EXTERNAL declarations: keyed by bare variable name.
 +    /// Used as a last-resort fallback in `find_qualified_global_variable` when the
 +    /// matching VAR_GLOBAL is not present in the index (e.g. the global lives in an
@@ -207,11 +207,11 @@ index 9b674960b0..bcfe7d80f8 100644
 +
      /// All struct initializers
      global_initializers: SymbolMap<String, VariableIndexEntry>,
- 
+
 @@ -1461,6 +1467,11 @@ impl Index {
- 
+
          self.config_variables.extend(other.config_variables);
- 
+
 +        // VAR_EXTERNAL shadow globals: import only entries not already present
 +        for (name, entry) in other.var_external_declarations {
 +            self.var_external_declarations.entry(name).or_insert(entry);
@@ -228,12 +228,12 @@ index 9b674960b0..bcfe7d80f8 100644
 +            // global reference when the actual VAR_GLOBAL is not in the current index.
 +            .or_else(|| self.var_external_declarations.get(&name.to_lowercase()))
      }
- 
+
      /// returns the `VariableIndexEntry` of the global variable with the given name
 @@ -2171,6 +2185,14 @@ impl Index {
          self.global_variables.insert(name.to_lowercase(), variable);
      }
- 
+
 +    /// Registers a VAR_EXTERNAL declaration as a shadow extern global. Used by the POU
 +    /// indexer so that references to the external variable resolve when the actual
 +    /// VAR_GLOBAL is not present in the compiled index (e.g. external library).
@@ -256,7 +256,7 @@ index e59ab10f8b..0416520a67 100644
 +use plc_ast::ast::LinkageType;
  use plc_source::source_location::SourceLocation;
  use plc_util::convention::internal_type_name;
- 
+
 @@ -262,6 +263,22 @@ impl<'i> PouIndexer<'i> {
                      var.location.clone(),
                      count,
@@ -286,7 +286,7 @@ index 6eea7a1a9b..6d84d8f1c4 100644
 +++ b/src/validation/tests/variable_validation_tests.rs
 @@ -1399,7 +1399,7 @@ fn var_external_with_initializer_does_not_err() {
  }
- 
+
  #[test]
 -fn using_var_external_variable_without_matching_global_will_not_resolve() {
 +fn using_var_external_variable_without_matching_global_resolves_as_extern() {
@@ -296,7 +296,7 @@ index 6eea7a1a9b..6d84d8f1c4 100644
 @@ -1412,18 +1412,15 @@ fn using_var_external_variable_without_matching_global_will_not_resolve() {
          "#,
      );
- 
+
 +    // VAR_EXTERNAL now registers a shadow extern-global entry, so the reference to `b`
 +    // resolves even without an explicit VAR_GLOBAL declaration. Only the E106 warning
 +    // about VAR_EXTERNAL having no semantic effect remains.
@@ -314,4 +314,3 @@ index 6eea7a1a9b..6d84d8f1c4 100644
 -      │             ^ Could not resolve reference to b
      ");
  }
- 

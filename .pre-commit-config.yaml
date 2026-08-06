@@ -17,3 +17,20 @@ repos:
     hooks:
       - id: clang-format
         types_or: [c++, c]
+
+  - repo: local
+    hooks:
+      - id: fmt-st
+        name: fmt-st (tc3tools)
+        entry: bazel run --noshow_progress //tools:fmt_st --
+        language: system
+        files: '\.st$'
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0  # Use the ref you want to point at
+    hooks:
+    - id: trailing-whitespace
+    - id: check-executables-have-shebangs
+    - id: check-shebang-scripts-are-executable
+    - id: end-of-file-fixer
+    - id: mixed-line-ending

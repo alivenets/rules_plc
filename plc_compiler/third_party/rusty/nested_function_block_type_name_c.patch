@@ -2,7 +2,7 @@
 +++ b/compiler/plc_header_generator/src/header_generator/header_generator_c.rs
 @@ -1,5 +1,6 @@
  use std::collections::HashMap;
- 
+
 +use plc::index::{Index, PouIndexEntry};
  use plc::typesystem::{get_builtin_types, DataType, DINT_TYPE, LWORD_TYPE};
  use plc_ast::ast::{
@@ -10,11 +10,11 @@
 @@ -48,12 +49,12 @@
          &self.contents
      }
- 
+
 -    fn prepare_template_data(&mut self, compilation_unit: &CompilationUnit) {
 +    fn prepare_template_data(&mut self, compilation_unit: &CompilationUnit, index: &Index) {
          let builtin_types = get_builtin_types();
- 
+
 -        self.prepare_global_variables(compilation_unit, &builtin_types);
 -        self.prepare_user_types(compilation_unit, &builtin_types);
 -        self.prepare_functions(compilation_unit, &builtin_types);
@@ -23,10 +23,10 @@
 +        self.prepare_functions(compilation_unit, &builtin_types, index);
          self.resolve_alias_dependencies();
      }
- 
+
 @@ -99,7 +100,7 @@
      }
- 
+
      /// Populates the self scoped [TemplateData] instance with the user types that should be added to the generated header file
 -    fn prepare_user_types(&mut self, compilation_unit: &CompilationUnit, builtin_types: &[DataType]) {
 +    fn prepare_user_types(&mut self, compilation_unit: &CompilationUnit, builtin_types: &[DataType], index: &Index) {
@@ -41,7 +41,7 @@
              );
          }
      }
- 
+
      /// Populates the self scoped [TemplateData] instance with the global variables that should be added to the generated header file
 -    fn prepare_global_variables(&mut self, compilation_unit: &CompilationUnit, builtin_types: &[DataType]) {
 +    fn prepare_global_variables(&mut self, compilation_unit: &CompilationUnit, builtin_types: &[DataType], index: &Index) {
@@ -55,7 +55,7 @@
 +            index,
          );
      }
- 
+
      /// Populates the self scoped [TemplateData] instance with the functions that should be added to the generated header file
 -    fn prepare_functions(&mut self, compilation_unit: &CompilationUnit, builtin_types: &[DataType]) {
 +    fn prepare_functions(&mut self, compilation_unit: &CompilationUnit, builtin_types: &[DataType], index: &Index) {
@@ -80,7 +80,7 @@
 @@ -167,7 +171,7 @@
                          variable_type: VariableType::Default,
                      });
- 
+
 -                    self.prepare_function_block(pou, compilation_unit, builtin_types, &compilation_unit.pous);
 +                    self.prepare_function_block(pou, compilation_unit, builtin_types, &compilation_unit.pous, index);
                  }
@@ -92,7 +92,7 @@
                          true,
 +                        index,
                      ));
- 
+
                      self.template_data.functions.push(Function {
 @@ -234,6 +239,7 @@
          user_types: &[UserTypeDeclaration],
@@ -108,7 +108,7 @@
                      true,
 +                    index,
                  );
- 
+
                  Some(Function {
 @@ -312,6 +319,7 @@
          builtin_types: &[DataType],
@@ -124,7 +124,7 @@
                      pous,
 +                    index,
                  );
- 
+
                  self.template_data.user_defined_types.structs.push(UserType {
 @@ -453,6 +462,7 @@
          compilation_unit: &CompilationUnit,
@@ -140,7 +140,7 @@
              true,
 +            index,
          );
- 
+
          if let Some(super_class) = &pou.super_class {
 @@ -549,6 +560,7 @@
          user_types: &[UserTypeDeclaration],
@@ -149,7 +149,7 @@
 +        index: &Index,
      ) -> Vec<Variable> {
          let mut variables: Vec<Variable> = Vec::new();
- 
+
 @@ -571,6 +583,7 @@
                      is_reference,
                      user_types,
@@ -167,7 +167,7 @@
          let mut variables: Vec<Variable> = Vec::new();
          let mut reference_symbol = if is_reference { self.get_reference_symbol() } else { String::new() };
 @@ -639,7 +653,7 @@
- 
+
                              if let Some(pou) = option_pou {
                                  if let Some(function) =
 -                                    self.get_function(pou, user_types, builtin_types, pous)

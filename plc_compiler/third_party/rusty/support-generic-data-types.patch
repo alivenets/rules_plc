@@ -5,7 +5,7 @@ index 357dd2ea70..216bdd4fa9 100644
 @@ -1194,6 +1194,63 @@ fn generic_datatypes_indexed() {
      );
  }
- 
+
 +#[test]
 +fn any_datatypes_can_be_used_in_variable_declarations() {
 +    let source = r#"
@@ -104,7 +104,7 @@ index a022660801..9ed340fdd0 100644
 +    let t = &generics[17];
 +    assert_eq!(&GenericBinding { name: "R".into(), nature: TypeNature::Elementary }, t);
  }
- 
+
  #[test]
 diff --git a/src/typesystem.rs b/src/typesystem.rs
 index e15a167e6a..126eb77d07 100644
@@ -120,13 +120,13 @@ index e15a167e6a..126eb77d07 100644
 +pub const ANY_SIMPLE_TYPE: &str = "ANY_SIMPLE";
 +pub const ANY_BIT_TYPE: &str = "ANY_BIT";
 +pub const ANY_DUT_TYPE: &str = "ANY_DUT";
- 
+
  #[cfg(test)]
  mod tests;
 @@ -552,6 +558,12 @@ impl DataTypeInformation {
          matches!(self, DataTypeInformation::Pointer { .. })
      }
- 
+
 +    /// Returns true if this is an untyped void pointer (`POINTER TO __VOID`), which
 +    /// is used to represent `ANY`, `ANY_BIT`, `ANY_DUT`, etc. at the type-system level.
 +    pub fn is_void_pointer(&self) -> bool {
@@ -240,11 +240,11 @@ index f973ac079d..cc303a48b8 100644
 +        ANY_REAL_TYPE, ANY_SIMPLE_TYPE, ANY_TYPE, VOID_INTERNAL_NAME,
      },
  };
- 
+
 @@ -527,6 +528,50 @@ fn any_date_type_test() {
      assert!(tod.has_nature(TypeNature::Any, &index));
  }
- 
+
 +#[test]
 +fn any_data_types_are_void_pointers() {
 +    let index = get_index();
@@ -299,7 +299,7 @@ index ac70e4670e..73dcd46ac8 100644
 @@ -1070,6 +1070,11 @@ pub fn validate_assignment_mismatch<T>(
          context.index.find_elementary_pointer_type(type_rhs.get_type_information()),
      );
- 
+
 +    // A void pointer (ANY, ANY_DUT, ANY_BIT, …) accepts any type — no mismatch possible.
 +    if type_lhs.get_type_information().is_void_pointer() {
 +        return;

@@ -1,0 +1,11 @@
+--- a/tc3tools/formatters/st_formatter.py
++++ b/tc3tools/formatters/st_formatter.py
+@@ -452,7 +452,7 @@
+             formatted_lines.append((self.INDENT_STR * print_indent) + stripped)
+             current_indent = max(0, current_indent + next_delta)
+
+-        return "\n".join(formatted_lines)
++        return "\n".join(formatted_lines) + "\n"
+
+
+ # =============================================================================

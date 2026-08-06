@@ -13,7 +13,7 @@ using bazel::tools::cpp::runfiles::Runfiles;
 // binding end to end.
 TEST(Hello, PrintsGreetingWhenRun) {
     std::string error;
-    auto runfiles = std::make_unique<Runfiles>(Runfiles::CreateForTest(&error));
+    std::unique_ptr<Runfiles> runfiles(Runfiles::CreateForTest(&error));
     ASSERT_NE(runfiles, nullptr) << error;
 
     std::string hello_path = runfiles->Rlocation("_main/simple/hello");

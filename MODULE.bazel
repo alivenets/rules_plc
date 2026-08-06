@@ -61,6 +61,15 @@ python = use_extension("@rules_python//python/extensions:python.bzl", "python")
 
 pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
 
+# tc3tools' STFormatter.format() doesn't end its output with a newline (see
+# tools/fmt_st.py) -- patched here rather than worked around in our own
+# wrapper since it's a property of the formatted file content itself.
+pip.override(
+    file = "tc3tools-0.1.2-py3-none-any.whl",
+    patch_strip = 1,
+    patches = ["//third_party/tc3tools:add-trailing-newline.patch"],
+)
+
 [
     pip.parse(
         hub_name = "pypi",

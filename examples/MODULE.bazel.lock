@@ -755,6 +755,10 @@
             "https://files.pythonhosted.org/packages/71/39/171f1c67cd00715f190ba0b100d606d440a28c93c7714febeca8b79af85e/six-1.16.0.tar.gz": "1e61c37477a1626458e36f7b1d82aa5c9b094fa4802892072e49de9c60c4c926",
             "https://files.pythonhosted.org/packages/d9/5a/e7c31adbe875f2abbb91bd84cf2dc52d792b5a01506781dbcf25c91daf11/six-1.16.0-py2.py3-none-any.whl": "8abb2f1d86890a2dfb989f9a77cfcfd3e47c2a354b01111771326f8aa26e0254"
           },
+          "tc3tools": {
+            "https://files.pythonhosted.org/packages/d5/86/9515c011744c2e215834f60ad71d968f7bfb8817d9d35581553979590a91/tc3tools-0.1.2.tar.gz": "54f9f8a2e3ccc33cf9fafd9f0b1237bac16b9770e1d202e504e07bbf28d8a59e",
+            "https://files.pythonhosted.org/packages/dc/13/472d24c0793fb8d3d32385e6715747ebf956e0194384badcd41b5d602df7/tc3tools-0.1.2-py3-none-any.whl": "789956899c2c6788adf2301aafd5a5ba4d0f8aa551820834c1b899a614e3ad70"
+          },
           "twine": {
             "https://files.pythonhosted.org/packages/5d/ec/00f9d5fd040ae29867355e559a94e9a8429225a0284a3f5f091a3878bfc0/twine-5.1.1-py3-none-any.whl": "215dbe7b4b94c2c50a7315c0275d2258399280fbb7d04182c7e55e24b5f93997",
             "https://files.pythonhosted.org/packages/77/68/bd982e5e949ef8334e6f7dcf76ae40922a8750aa2e347291ae1477a4782b/twine-5.1.1.tar.gz": "9aa0825139c02b3434d913545c7b847a21c835e11597f5255842d457da2322db"
