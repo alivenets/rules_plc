@@ -253,7 +253,7 @@
     "@@rules_rust+//crate_universe:extensions.bzl%crate": {
       "general": {
         "bzlTransitiveDigest": "wR+fBTEllQoThIj0eqAT9h3KbmUxUZMT50u8T+t2sGM=",
-        "usagesDigest": "r8LepcrjOVscA+dH1rRC4PQKXmFsCk17D7m1dzX3bQ0=",
+        "usagesDigest": "Et15iSn2nHcJm7Bwqu1KayGFnzixjAsC56aM6Z+Kjp0=",
         "recordedFileInputs": {
           "@@+_repo_rules+rusty//Cargo.lock": "a307de8fb8e86bbc7551e417a82c5c7d5a14373be4cd36b5f846171c194b3afe",
           "@@+_repo_rules+rusty//Cargo.toml": "d1b6ec297124a9aabbd29475657e7deda49c093523bf302bf2e3a07a5a605a86"

@@ -2,7 +2,7 @@
 +++ b/compiler/plc_driver/src/cli.rs
 @@ -86,6 +86,14 @@
      pub print_ast: bool,
-
+ 
      #[clap(
 +        long = "ast-json",
 +        group = "format",

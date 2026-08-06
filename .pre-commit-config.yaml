@@ -27,10 +27,17 @@ repos:
         files: '\.st$'
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0  # Use the ref you want to point at
+    rev: v6.0.0
     hooks:
+    # .patch files are exact byte-for-byte diffs against upstream sources --
+    # unified diff context lines representing a blank original line must
+    # keep their single trailing space, which these hooks would otherwise
+    # strip, corrupting the patch (breaks `patch`'s hunk parsing).
     - id: trailing-whitespace
+      exclude: '\.patch$'
     - id: check-executables-have-shebangs
     - id: check-shebang-scripts-are-executable
     - id: end-of-file-fixer
+      exclude: '\.patch$'
     - id: mixed-line-ending
+      exclude: '\.patch$'
