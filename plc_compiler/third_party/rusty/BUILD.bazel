@@ -1,5 +1,4 @@
-load("@rules_cc//cc:cc_import.bzl", "cc_import")
-load("//st:toolchain.bzl", "st_toolchain")
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_import", "cc_library")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -101,13 +100,41 @@ cc_import(
     shared_library = ":libzstd.so",
 )
 
-st_toolchain(
-    name = "plc_compiler",
-    compiler = "@rusty//:plc",
+# The plc_llvm C++ shim plc links against. Built here and injected into @rusty.
+cc_library(
+    name = "llvm_wrapper_objs",
+    srcs = ["@rusty//:compiler/plc_llvm/src/cpp/llvm_wrapper.cpp"],
+    copts = ["-fPIC"],
+    linkopts = ["-Wl,--no-as-needed"],
+    alwayslink = True,
+    deps = ["@llvm_toolchain_llvm//:clang_headers"],
 )
 
-toolchain(
+cc_binary(
+    name = "libllvm_wrapper.so",
+    linkshared = True,
+    deps = [":llvm_wrapper_objs"],
+)
+
+cc_import(
+    name = "llvm_wrapper",
+    shared_library = ":libllvm_wrapper.so",
+)
+
+alias(
     name = "plc",
-    toolchain = ":plc_compiler",
-    toolchain_type = "//st:toolchain_type",
+    actual = "@rusty//:plc",
+)
+
+# plc's runtime .so companions ($ORIGIN rpath, see rusty.BUILD.bazel) --
+# release.sh bundles these alongside the binary so it runs standalone.
+filegroup(
+    name = "plc_runtime_libs",
+    srcs = [
+        ":libffi.so",
+        ":libxml2.so",
+        ":libz.so",
+        ":libzstd.so",
+        ":libllvm_wrapper.so",
+    ],
 )

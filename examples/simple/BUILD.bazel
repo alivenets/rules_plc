@@ -1,4 +1,4 @@
-load("//st:defs.bzl", "st_binary")
+load("@rules_plc//st:defs.bzl", "st_binary")
 
 st_binary(
     name = "hello",

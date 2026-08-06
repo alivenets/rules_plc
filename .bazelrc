@@ -1,1 +1,6 @@
+# Self-registers this repo's own C++ toolchain + plc release for tests,
+# does not propagate to consumers.
+build --extra_toolchains=@llvm_toolchain//:all
+build --extra_toolchains=//third_party/plc_release:plc
+
 try-import %workspace%/user.bazelrc

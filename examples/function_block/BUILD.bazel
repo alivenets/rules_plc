@@ -1,4 +1,4 @@
-load("//st:defs.bzl", "st_library")
+load("@rules_plc//st:defs.bzl", "st_library")
 
 st_library(
     name = "counter",

@@ -1,5 +1,5 @@
-#include "examples/function_block/counter_headers_st/counter.h"
-#include "examples/function_block/totalizer_headers_st/totalizer.h"
+#include "function_block/counter_headers_st/counter.h"
+#include "function_block/totalizer_headers_st/totalizer.h"
 
 #include "gtest/gtest.h"
 

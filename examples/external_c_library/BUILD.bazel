@@ -1,4 +1,4 @@
-load("//st:defs.bzl", "st_library", "st_library_stub")
+load("@rules_plc//st:defs.bzl", "st_library", "st_library_stub")
 
 st_library(
     name = "fast_math",

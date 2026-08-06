@@ -33,7 +33,7 @@ def _compile(ctx, toolchain, out_suffix, sources, dep_interfaces, extra_interfac
     ctx.actions.run(
         executable = toolchain.compiler,
         arguments = [args],
-        inputs = depset(sources + extra_interfaces, transitive = [dep_interfaces]),
+        inputs = depset(sources + extra_interfaces + toolchain.compiler_runtime_files, transitive = [dep_interfaces]),
         outputs = [out],
         mnemonic = "StCompile",
         progress_message = "Compiling ST binary " + progress_verb + " %{label}",
@@ -57,7 +57,7 @@ def _link(ctx, toolchain, own_objects):
         executable = toolchain.compiler,
         arguments = [args],
         inputs = depset(
-            own_objects + [toolchain.linker],
+            own_objects + [toolchain.linker] + toolchain.compiler_runtime_files,
             transitive = [dep_objects],
         ),
         outputs = [out],
@@ -218,10 +218,6 @@ def _st_binary_provider_fusion_impl(ctx):
     headers_target = ctx.attr.headers
     binary_default_info = binary_target[DefaultInfo]
 
-    # An executable rule's DefaultInfo.executable must be a file this rule's
-    # own actions produced, not simply forwarded from binary_target -- so
-    # symlink to it instead of reusing binary_default_info.files_to_run
-    # directly.
     executable = ctx.actions.declare_file(ctx.label.name)
     ctx.actions.symlink(
         output = executable,
@@ -229,25 +225,32 @@ def _st_binary_provider_fusion_impl(ctx):
         is_executable = True,
     )
 
-    return [
+    providers = [
         DefaultInfo(
             executable = executable,
             files = depset([executable]),
             runfiles = binary_default_info.default_runfiles,
         ),
         binary_target[OutputGroupInfo],
-        headers_target[StHeadersInfo],
-        cc_common.merge_cc_infos(cc_infos = [binary_target[CcInfo], headers_target[CcInfo]]),
     ]
+    if headers_target != None:
+        providers.append(headers_target[StHeadersInfo])
+        providers.append(cc_common.merge_cc_infos(cc_infos = [binary_target[CcInfo], headers_target[CcInfo]]))
+    else:
+        # No srcs/hdrs of its own to generate headers for -- see st_binary
+        # below.
+        providers.append(binary_target[CcInfo])
+
+    return providers
 
 _st_binary_provider_fusion = rule(
     implementation = _st_binary_provider_fusion_impl,
     executable = True,
     attrs = {
         "binary": attr.label(mandatory = True, executable = True, cfg = "target", providers = [CcInfo]),
-        "headers": attr.label(mandatory = True, providers = [CcInfo, StHeadersInfo]),
+        "headers": attr.label(providers = [CcInfo, StHeadersInfo]),
     },
-    doc = "Combines an st_binary with its generated headers into one target, forwarding the binary's own DefaultInfo (so the fused target stays runnable/testable) and OutputGroupInfo (so its _validation actions -- e.g. StValidateProgram -- still run). Internal -- use the public st_binary macro below.",
+    doc = "Combines an st_binary with its generated headers (if any) into one target, forwarding the binary's own DefaultInfo (so the fused target stays runnable/testable) and OutputGroupInfo (so its _validation actions -- e.g. StValidateProgram -- still run). Internal -- use the public st_binary macro below.",
 )
 
 def st_binary(name, srcs = [], hdrs = [], deps = [], program = None, visibility = None, **kwargs):
@@ -287,20 +290,18 @@ def st_binary(name, srcs = [], hdrs = [], deps = [], program = None, visibility 
         visibility = ["//visibility:private"],
         **kwargs
     )
-    if not srcs and not hdrs:
-        # Nothing of this binary's own to generate headers for (its PROGRAM
-        # entry point, if any, is never exported -- see _st_binary_impl).
-        native.alias(name = name, actual = bin_name, visibility = visibility)
-        return
 
-    headers_gen_name = name + "_headers"
-    st_library_headers_gen(
-        name = headers_gen_name,
-        srcs = srcs,
-        hdrs = hdrs,
-        deps = deps,
-        visibility = ["//visibility:private"],
-    )
+    # Always fused, even with no headers to generate.
+    headers_gen_name = None
+    if srcs or hdrs:
+        headers_gen_name = name + "_headers"
+        st_library_headers_gen(
+            name = headers_gen_name,
+            srcs = srcs,
+            hdrs = hdrs,
+            deps = deps,
+            visibility = ["//visibility:private"],
+        )
     _st_binary_provider_fusion(
         name = name,
         binary = bin_name,

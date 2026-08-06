@@ -5,7 +5,8 @@ load("//st:providers.bzl", "StHeadersInfo", "StInfo", "create_st_compilation_con
 load("//st:private/st_headers.bzl", "st_library_headers_gen")
 
 def _st_library_impl(ctx):
-    compiler = ctx.toolchains["//st:toolchain_type"].compiler
+    toolchain = ctx.toolchains["//st:toolchain_type"]
+    compiler = toolchain.compiler
 
     dep_info = merge_st_infos([dep[StInfo] for dep in ctx.attr.deps])
     dep_objects = dep_info.linking_context.objects
@@ -29,7 +30,7 @@ def _st_library_impl(ctx):
     ctx.actions.run(
         executable = compiler,
         arguments = [args],
-        inputs = own_interfaces,
+        inputs = depset(toolchain.compiler_runtime_files, transitive = [own_interfaces]),
         outputs = [out],
         mnemonic = "StCompile",
         progress_message = "Compiling ST library %{label}",

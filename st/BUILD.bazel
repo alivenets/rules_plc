@@ -1,5 +1,5 @@
 load("@rules_python//python:py_binary.bzl", "py_binary")
-
+load("@pypi//:requirements.bzl", "requirement")
 toolchain_type(
     name = "toolchain_type",
     visibility = ["//visibility:public"],
@@ -17,7 +17,8 @@ py_binary(
     srcs = ["private/generate_headers.py"],
     main = "private/generate_headers.py",
     visibility = ["//visibility:public"],
-    deps = ["@rules_plc_pip//jinja2"],
+    legacy_create_init = False,
+    deps = [requirement("jinja2")],
 )
 
 # Renders library_stubs.c.jinja (a Jinja2 template) with the {external}
@@ -27,5 +28,6 @@ py_binary(
     srcs = ["private/generate_weak_stubs.py"],
     main = "private/generate_weak_stubs.py",
     visibility = ["//visibility:public"],
-    deps = ["@rules_plc_pip//jinja2"],
+    legacy_create_init = False,
+    deps = [requirement("jinja2")],
 )

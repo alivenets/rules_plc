@@ -1,4 +1,4 @@
-load("//st:defs.bzl", "st_binary", "st_library")
+load("@rules_plc//st:defs.bzl", "st_binary", "st_library")
 
 st_library(
     name = "mathlib",
@@ -19,9 +19,4 @@ st_binary(
     name = "doubler_app",
     program = "doubler_app.st",
     deps = [":mathlib"],
-)
-
-st_binary(
-    name = "st_cycle",
-    program = "st_cycle.st",
 )

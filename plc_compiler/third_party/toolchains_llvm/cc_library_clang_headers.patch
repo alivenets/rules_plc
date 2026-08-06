@@ -2,10 +2,19 @@ diff --git a/toolchain/BUILD.llvm_repo.tpl b/toolchain/BUILD.llvm_repo.tpl
 index ab27cdf..2fe1545 100644
 --- a/toolchain/BUILD.llvm_repo.tpl
 +++ b/toolchain/BUILD.llvm_repo.tpl
-@@ -61,6 +61,12 @@ filegroup(
+@@ -12,6 +12,8 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+
++load("@rules_cc//cc:defs.bzl", "cc_library")
++
+ package(default_visibility = ["//visibility:public"])
+
+ # Some targets may need to directly depend on these files.
+@@ -75,6 +77,12 @@
      ),
  )
- 
+
 +cc_library(
 +    name = "clang_headers",
 +    hdrs = glob(["include/**"]),

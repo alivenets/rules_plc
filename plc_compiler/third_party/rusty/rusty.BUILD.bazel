@@ -6,10 +6,17 @@ against LLVM plus its transitive system libs (ffi, xml2, zlib, zstd), which
 inkwell/llvm-sys need but crate_universe doesn't resolve on its own.
 """
 
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_import", "cc_library")
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_proc_macro")
 load("@rusty_crates//:defs.bzl", "aliases", "all_crate_deps")
 
 package(default_visibility = ["//visibility:public"])
+
+# The plc_llvm C++ shim is built as an ordinary cc_library/cc_binary in
+# //third_party/rusty:BUILD.bazel instead of here -- default_visibility
+# above only governs rule targets, so a source file referenced cross-repo
+# (as that cc_library's srcs) still needs an explicit exports_files().
+exports_files(["compiler/plc_llvm/src/cpp/llvm_wrapper.cpp"])
 
 rust_proc_macro(
     name = "plc_derive",
@@ -140,26 +147,6 @@ rust_library(
     ],
 )
 
-cc_library(
-    name = "llvm_wrapper_objs",
-    srcs = ["compiler/plc_llvm/src/cpp/llvm_wrapper.cpp"],
-    copts = ["-fPIC"],
-    linkopts = ["-Wl,--no-as-needed"],
-    alwayslink = True,
-    deps = ["@llvm_toolchain_llvm//:clang_headers"],
-)
-
-cc_binary(
-    name = "libllvm_wrapper.so",
-    linkshared = True,
-    deps = [":llvm_wrapper_objs"],
-)
-
-cc_import(
-    name = "llvm_wrapper",
-    shared_library = ":libllvm_wrapper.so",
-)
-
 rust_library(
     name = "plc_lowering",
     crate_name = "plc_lowering",
@@ -242,21 +229,26 @@ rust_binary(
     crate_root = "compiler/plc_driver/src/main.rs",
     srcs = ["compiler/plc_driver/src/main.rs"],
     edition = "2021",
+    # Bazel's generated _solib_*/ symlink dirs (see link_deps below) only
+    # exist inside this build's own output tree -- $ORIGIN instead makes plc
+    # look for its .so companions next to itself once copied elsewhere
+    # See release.sh.
+    rustc_flags = ["-Clink-args=-Wl,-rpath,$$ORIGIN"],
     deps = all_crate_deps(package_name = "compiler/plc_driver", normal = True) + [
         ":plc_driver_lib",
     ],
     data = [
-        "@rules_plc//third_party/rusty:libffi.so",
-        "@rules_plc//third_party/rusty:libzstd.so",
-        "@rules_plc//third_party/rusty:libxml2.so",
-        "@rules_plc//third_party/rusty:libz.so",
-        ":libllvm_wrapper.so",
+        "@plc_compiler//third_party/rusty:libffi.so",
+        "@plc_compiler//third_party/rusty:libzstd.so",
+        "@plc_compiler//third_party/rusty:libxml2.so",
+        "@plc_compiler//third_party/rusty:libz.so",
+        "@plc_compiler//third_party/rusty:libllvm_wrapper.so",
     ],
     link_deps = [
-        "@rules_plc//third_party/rusty:ffi",
-        "@rules_plc//third_party/rusty:zstd",
-        "@rules_plc//third_party/rusty:xml2",
-        "@rules_plc//third_party/rusty:zlib",
-        ":llvm_wrapper",
+        "@plc_compiler//third_party/rusty:ffi",
+        "@plc_compiler//third_party/rusty:zstd",
+        "@plc_compiler//third_party/rusty:xml2",
+        "@plc_compiler//third_party/rusty:zlib",
+        "@plc_compiler//third_party/rusty:llvm_wrapper",
     ],
 )

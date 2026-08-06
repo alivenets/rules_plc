@@ -1,4 +1,4 @@
-#include "examples/external_c_library/fast_math_headers_st/fast_math.h"
+#include "external_c_library/fast_math_headers_st/fast_math.h"
 
 #include "gtest/gtest.h"
 

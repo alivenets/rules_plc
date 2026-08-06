@@ -16,7 +16,7 @@ TEST(Hello, PrintsGreetingWhenRun) {
     std::unique_ptr<Runfiles> runfiles(Runfiles::CreateForTest(&error));
     ASSERT_NE(runfiles, nullptr) << error;
 
-    std::string hello_path = runfiles->Rlocation("_main/examples/simple/hello");
+    std::string hello_path = runfiles->Rlocation("_main/simple/hello");
     FILE* pipe = popen((hello_path + " 2>&1").c_str(), "r");
     ASSERT_NE(pipe, nullptr);
 
