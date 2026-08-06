@@ -11,6 +11,13 @@ bazel_dep(name = "toolchains_llvm", version = "1.8.0", dev_dependency = True)
 
 bazel_dep(name = "googletest", version = "1.15.2")
 
+# googletest 1.15.2 transitively pulls re2@2024-07-02, whose MODULE.bazel
+# uses the long-removed @bazel_tools//tools/cpp:cc_configure.bzl%
+# cc_configure_extension -- fails to even load on Bazel 8.7+. Forcing MVS to
+# a newer re2 (which moved that extension to @rules_cc) fixes it; we don't
+# use re2 directly.
+bazel_dep(name = "re2", version = "2025-11-05.bcr.1")
+
 bazel_dep(name = "rules_shell", version = "0.8.0", dev_dependency = True)
 
 # C++ toolchain for st_library/st_binary's CcInfo side and st_toolchain's
