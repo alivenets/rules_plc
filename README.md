@@ -29,8 +29,8 @@ http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "ht
 
 http_archive(
     name = "plc_linux_x86_64",
-    url = "https://github.com/alivenets/rules_plc/releases/download/0.1.4/plc-linux-x86_64.tar.gz",
-    sha256 = "c06ec80ea095cef6ad5fd28f028f9a7b1009c344f63b5da85e1fcbdeb7c27ab2",
+    url = "https://github.com/alivenets/rules_plc/releases/download/0.1.5/plc-linux-x86_64.tar.gz",
+    sha256 = "31177633ae225bf6774730db9afa043f0c8f2fc59372d5507f4859954c2e72b0",
     strip_prefix = "plc-linux-x86_64",
     build_file_content = """
 package(default_visibility = ["//visibility:public"])
