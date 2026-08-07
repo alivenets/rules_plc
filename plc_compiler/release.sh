@@ -7,6 +7,13 @@
 # Usage: plc_compiler/release.sh <tag>
 #
 # Requires: bazel, ldd, a `gh` CLI authenticated with release-write access.
+#
+# Run this on whatever glibc floor you want the release binary to require
+# (dynamic symbol versions are picked up from the build host's libc at link
+# time) -- see release.Dockerfile for a known-good, older-glibc environment
+# instead of whatever the local dev machine happens to run. Note this only
+# bounds the floor so far: Rust's own std already hard-requires glibc >= 2.34
+# regardless of build host (see release.Dockerfile's own comment).
 set -euo pipefail
 
 if [[ $# -ne 1 ]]; then

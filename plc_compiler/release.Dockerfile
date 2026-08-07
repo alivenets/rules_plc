@@ -5,12 +5,45 @@
 # Rust's own std already hard-requires glibc >= 2.34 (pthread_create/dlopen
 # etc. merged into libc.so as of glibc 2.34), regardless of build host.
 #
-# Usage, from the repo root:
+# To release plc_compiler using this environment, from the repo root:
+#
 #   docker build -t plc-release -f plc_compiler/release.Dockerfile plc_compiler
+#
 #   docker run --rm -v "$(pwd)":/workspace -w /workspace \
 #     -e GH_TOKEN="$(gh auth token)" \
 #     plc-release \
-#     bash -c "git config --global --add safe.directory /workspace && plc_compiler/release.sh <tag>"
+#     bash -c '
+#       git config --global --add safe.directory /workspace &&
+#       plc_compiler/release.sh <tag>
+#     '
+#
+# (the safe.directory config is needed because the container runs as root
+# over a directory owned by your host user -- without it, `gh release
+# create --generate-notes`'s changelog generation fails, and release.sh
+# then can't tell an existing release from a new one).
+#
+# GH_TOKEN must have release-write access to the target repo; `gh auth
+# token` reuses your host's existing `gh auth login` session.
+#
+# To speed up repeat runs (avoids re-downloading the LLVM/Rust toolchains
+# and re-compiling ~9k actions from scratch each time), mount a
+# repository cache and a disk cache and point Bazel at them via a
+# container-local .bazelrc:
+#
+#   mkdir -p /tmp/plc-release-repo-cache /tmp/plc-release-disk-cache
+#   printf 'common --repository_cache=/root/.cache/bazel-repo-cache\ncommon --disk_cache=/root/.cache/bazel-disk-cache\n' \
+#     > /tmp/plc-release-bazelrc
+#
+#   docker run --rm -v "$(pwd)":/workspace \
+#     -v /tmp/plc-release-repo-cache:/root/.cache/bazel-repo-cache \
+#     -v /tmp/plc-release-disk-cache:/root/.cache/bazel-disk-cache \
+#     -v /tmp/plc-release-bazelrc:/root/.bazelrc \
+#     -w /workspace -e GH_TOKEN="$(gh auth token)" \
+#     plc-release \
+#     bash -c '
+#       git config --global --add safe.directory /workspace &&
+#       plc_compiler/release.sh <tag>
+#     '
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
