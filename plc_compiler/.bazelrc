@@ -1,3 +1,0 @@
-common --@rules_rust//rust/settings:experimental_use_cc_common_link=true
-common --@rules_rust//rust/settings:toolchain_linker_preference=cc
-common --@rules_rust//rust/settings:experimental_use_allocator_libraries_with_mangled_symbols=true
