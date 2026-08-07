@@ -1,7 +1,24 @@
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("@rules_plc//st:defs.bzl", "st_binary", "st_library")
+load("@rules_plc//st:toolchain.bzl", "st_toolchain")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
-load("//st:defs.bzl", "st_binary", "st_library")
 load(":rules_test.bzl", "rules_test_suite")
+
+# This module's own //st:toolchain_type toolchain, per README.md's Option A
+# recipe -- dogfoods the release archive built by //plc_compiler (see
+# ../plc_compiler/release.sh).
+st_toolchain(
+    name = "plc_compiler",
+    compiler = "@plc_linux_x86_64//:plc",
+    compiler_runtime_files = ["@plc_linux_x86_64//:runtime_libs"],
+    linker = "@llvm_toolchain_llvm//:bin/clang",
+)
+
+toolchain(
+    name = "plc",
+    toolchain = ":plc_compiler",
+    toolchain_type = "@rules_plc//st:toolchain_type",
+)
 
 # Regression coverage for the ST rules themselves (hdrs propagation, transitive
 # deps), as opposed to examples/ which demonstrates typical usage.

@@ -1,4 +1,4 @@
-#include "tests/generics_headers_st/generics.h"
+#include "generics_headers_st/generics.h"
 
 #include "gtest/gtest.h"
 

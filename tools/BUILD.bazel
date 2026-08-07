@@ -1,4 +1,4 @@
-load("@pypi//:requirements.bzl", "requirement")
+load("@rules_plc_pip_deps//:requirements.bzl", "requirement")
 load("@rules_python//python:py_binary.bzl", "py_binary")
 
 # Formats .st files -- see fmt_st.py. `bazel run //tools:fmt_st -- --check
@@ -6,7 +6,7 @@ load("@rules_python//python:py_binary.bzl", "py_binary")
 py_binary(
     name = "fmt_st",
     srcs = ["fmt_st.py"],
-    legacy_create_init = False,
+    legacy_create_init = 0,
     main = "fmt_st.py",
     visibility = ["//visibility:public"],
     deps = [requirement("tc3tools")],
