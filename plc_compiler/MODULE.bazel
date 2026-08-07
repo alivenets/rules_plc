@@ -5,9 +5,9 @@ module(
 
 # Builds a patched rusty (plc) compiler binary from source -- see
 # third_party/rusty/. Standalone on purpose: no dependency on rules_plc.
-bazel_dep(name = "platforms", version = "0.0.11")
-bazel_dep(name = "rules_cc", version = "0.0.16")
-bazel_dep(name = "bazel_skylib", version = "1.7.1")
+bazel_dep(name = "platforms", version = "1.1.0")
+bazel_dep(name = "rules_cc", version = "0.2.17")
+bazel_dep(name = "bazel_skylib", version = "1.8.2")
 bazel_dep(name = "toolchains_llvm", version = "1.8.0")
 single_version_override(
     module_name = "toolchains_llvm",
@@ -22,6 +22,14 @@ llvm = use_extension("@toolchains_llvm//toolchain/extensions:llvm.bzl", "llvm")
 llvm.toolchain(
     name = "llvm_toolchain",
     llvm_version = "21.1.8",
+    # stdc++, not libc++: the prebuilt LLVM static archives llvm-sys pulls in
+    # (libLLVMX86*.a etc.) are themselves compiled against libstdc++'s ABI
+    # (std::__cxx11::* symbols) -- switching our own link to libc++ leaves
+    # those undefined, since libc++ doesn't provide libstdc++-ABI-tagged
+    # symbols. Considered switching to make the release binary's C++ runtime
+    # hermetic (statically linking libstdc++ currently pulls the build host's
+    # own libstdc++.a, since toolchains_llvm doesn't bundle one -- only
+    # libc++.a), but LLVM's own prebuilt archives rule it out.
     stdlib = {"": "stdc++"},
 )
 use_repo(llvm, "llvm_toolchain", "llvm_toolchain_llvm")
