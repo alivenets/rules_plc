@@ -89,6 +89,35 @@ and `select()` between them on `@platforms//cpu:...` for `compiler`/
 `compiler_runtime_files` -- `st_toolchain`'s attrs run in `cfg = "exec"`, so
 `select()` resolves against the exec platform.
 
+### Using the `plc` module extension (prebuilt release)
+
+`rules_plc` exposes a `module_extension` named `plc` that materializes a
+prebuilt release via `http_archive`. The extension accepts an optional
+`label_injections` mapping on the `release` tag so consumers can tell the
+extension how to rewrite an apparent repo prefix into a canonical repo
+label that will be embedded into the generated `BUILD` content.
+
+Example `MODULE.bazel` snippet (see `examples/MODULE.bazel`):
+
+```python
+plc = use_extension("@rules_plc//st:plc_prebuilt_extensions.bzl", "plc")
+plc.release(
+    name = "plc_toolchain",
+    linker = "@llvm_toolchain_llvm//:bin/clang",
+    label_injections = {
+        "@llvm_toolchain_llvm": "@llvm_toolchain_llvm",
+    },
+)
+use_repo(plc, "plc_toolchain")
+register_toolchains("@plc_toolchain//:plc_toolchain")
+```
+
+The `label_injections` field is useful when other module extensions (for
+example `toolchains_llvm`) expose an apparent repo name that the generated
+`BUILD` file needs to reference; the mapping ensures the generated file
+contains canonical markers that Bazel rewrites to concrete repository names
+at materialization time.
+
 ### Option B: build `plc` from source
 
 `plc_compiler/` is a separate, standalone Bazel module (no dependency on

@@ -14,6 +14,13 @@ def _st_library_impl(ctx):
     dep_objects = dep_info.linking_context.objects
     dep_interfaces = dep_info.compilation_context.interfaces
 
+    # interface_deps are direct-only interface providers: their interface
+    # files must be passed to the compiler via `-i` for this target's
+    # compilation, but they are not transitive and must not be re-exported
+    # via the resulting `StInfo`/linking context.
+    interface_dep_infos = [dep[StInfo] for dep in ctx.attr.interface_deps]
+    interface_dep_interfaces = depset(transitive = [info.compilation_context.interfaces for info in interface_dep_infos]) if interface_dep_infos else depset()
+
     # hdrs are full declarations (e.g. .dut TYPE definitions) with no
     # implementation of their own. They're compiled alongside srcs so their
     # constructors are emitted exactly once, by the owning library; dependents
@@ -27,12 +34,16 @@ def _st_library_impl(ctx):
     args.add_all(ctx.files.srcs)
     args.add_all(ctx.files.hdrs)
     args.add_all(dep_interfaces, before_each = "-i")
+
+    # Add direct-only interface deps as -i inputs (non-transitive)
+    if interface_dep_interfaces:
+        args.add_all(interface_dep_interfaces, before_each = "-i")
     args.add("-o", out)
 
     ctx.actions.run(
         executable = compiler,
         arguments = [args],
-        inputs = depset(toolchain.compiler_runtime_files, transitive = [own_interfaces]),
+        inputs = depset(toolchain.compiler_runtime_files, transitive = [own_interfaces, interface_dep_interfaces]),
         outputs = [out],
         mnemonic = "StCompile",
         progress_message = "Compiling ST library %{label}",
@@ -99,6 +110,10 @@ _st_library = rule(
             providers = [StInfo],
             doc = "Other st_library targets this library's implementation calls into.",
         ),
+        "interface_deps": attr.label_list(
+            providers = [StInfo],
+            doc = "Targets that provide only interface (.st/.dut) files used at compile time via -i; not transitive and not re-exported.",
+        ),
         "_cc_toolchain": attr.label(default = Label("@rules_cc//cc:current_cc_toolchain")),
     },
     toolchains = ["//st:toolchain_type"] + use_cc_toolchain(),
@@ -125,7 +140,7 @@ _st_provider_fusion = rule(
     doc = "Combines a compiled st_library with its generated headers into one target. Internal -- use the public st_library macro below.",
 )
 
-def st_library(name, srcs, hdrs = [], deps = [], visibility = None, **kwargs):
+def st_library(name, srcs, hdrs = [], deps = [], interface_deps = [], visibility = None, **kwargs):
     """Compiles ST sources into a relocatable object, for linking into an st_binary/st_test or another st_library.
 
     Also generates and exports plc's C headers for srcs/hdrs, so a
@@ -142,6 +157,12 @@ def st_library(name, srcs, hdrs = [], deps = [], visibility = None, **kwargs):
             re-exported to dependents, who see them via -i only (never
             recompiling them).
         deps: Other st_library targets this library's implementation calls into.
+        interface_deps: Optional list of st_library targets that provide only
+            interface files (srcs/hdrs) which should be passed to the compiler
+            as `-i` inputs for this target's compilation. These are direct-only
+            and not transitive: `interface_deps` are not merged into the
+            resulting `StInfo` or exported `CcInfo` and thus are not visible to
+            downstream dependents.
         visibility: Visibility of this library (the underlying compile-only/
             headers-only targets stay private regardless).
         **kwargs: Forwarded to the underlying compile-only rule.
@@ -152,6 +173,7 @@ def st_library(name, srcs, hdrs = [], deps = [], visibility = None, **kwargs):
         srcs = srcs,
         hdrs = hdrs,
         deps = deps,
+        interface_deps = interface_deps,
         visibility = ["//visibility:private"],
         **kwargs
     )

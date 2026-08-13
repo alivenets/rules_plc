@@ -14,9 +14,7 @@ bazel_dep(name = "rules_cc", version = "0.0.16")
 bazel_dep(name = "bazel_skylib", version = "1.7.1")
 bazel_dep(name = "googletest", version = "1.15.2")
 
-# rules_plc's own toolchains_llvm usage is dev_dependency-only (see
-# ../MODULE.bazel), so invisible here -- this module needs its own C++
-# toolchain (cc_test) and clang (st_toolchain's linker below).
+# rules_plc exposes a module extension for the prebuilt plc release archive.
 bazel_dep(name = "toolchains_llvm", version = "1.8.0")
 
 llvm = use_extension("@toolchains_llvm//toolchain/extensions:llvm.bzl", "llvm")
@@ -27,18 +25,14 @@ llvm.toolchain(
 )
 use_repo(llvm, "llvm_toolchain", "llvm_toolchain_llvm")
 
-http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
-
-http_archive(
-    name = "plc_linux_x86_64",
-    build_file_content = """
-package(default_visibility = ["//visibility:public"])
-exports_files(["plc"])
-filegroup(name = "runtime_libs", srcs = glob(["*.so"]))
-""",
-    sha256 = "5388e2b4e2ed99f47ca271fb6b2265813b9e556f3b5c5ff0a86f87ab7a52942c",
-    strip_prefix = "plc-linux-x86_64",
-    url = "https://github.com/alivenets/rules_plc/releases/download/0.1.3/plc-linux-x86_64.tar.gz",
+plc = use_extension("@rules_plc//st:plc_prebuilt_extensions.bzl", "plc")
+plc.release(
+    name = "plc_toolchain",
+    label_injections = {
+        "@llvm_toolchain_llvm": "@llvm_toolchain_llvm",
+    },
+    linker = "@llvm_toolchain_llvm//:bin/clang",
 )
+use_repo(plc, "plc_toolchain")
 
-register_toolchains("//:plc")
+register_toolchains("@plc_toolchain//:plc_toolchain")

@@ -1,16 +1,5 @@
-"""Registers this module's own plc toolchain, per README.md's Option A -- see MODULE.bazel."""
+"""The examples package no longer needs a BUILD-defined plc toolchain.
 
-load("@rules_plc//st:defs.bzl", "st_toolchain")
-
-st_toolchain(
-    name = "plc_compiler",
-    compiler = "@plc_linux_x86_64//:plc",
-    compiler_runtime_files = ["@plc_linux_x86_64//:runtime_libs"],
-    linker = "@llvm_toolchain_llvm//:bin/clang",
-)
-
-toolchain(
-    name = "plc",
-    toolchain = ":plc_compiler",
-    toolchain_type = "@rules_plc//st:toolchain_type",
-)
+The prebuilt plc module extension generates the repository and toolchain
+itself, so this root package is intentionally empty.
+"""

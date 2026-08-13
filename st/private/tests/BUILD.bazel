@@ -1,0 +1,3 @@
+load("//st/private/tests:label_injections_test.bzl", "label_injections_test_suite")
+
+label_injections_test_suite(name = "label_injections_test_suite")
