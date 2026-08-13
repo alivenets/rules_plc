@@ -4,7 +4,7 @@ def _st_toolchain_impl(ctx):
     return [platform_common.ToolchainInfo(
         compiler = ctx.executable.compiler,
         compiler_runtime_files = ctx.files.compiler_runtime_files,
-        linker = ctx.file.linker,
+        linker = ctx.executable.linker,
     )]
 
 st_toolchain = rule(
@@ -13,8 +13,8 @@ st_toolchain = rule(
         "compiler": attr.label(
             mandatory = True,
             executable = True,
-            cfg = "exec",
             allow_single_file = True,
+            cfg = "exec",
             doc = "The rusty (plc) compiler executable.",
         ),
         "compiler_runtime_files": attr.label_list(
@@ -24,6 +24,7 @@ st_toolchain = rule(
         ),
         "linker": attr.label(
             mandatory = True,
+            executable = True,
             allow_single_file = True,
             cfg = "exec",
             # Must be the real clang binary, not toolchains_llvm's

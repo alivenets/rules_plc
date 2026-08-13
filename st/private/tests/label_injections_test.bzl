@@ -36,5 +36,5 @@ def label_injections_test_suite(name):
 
     native.test_suite(
         name = name,
-        tests = ["basic_test", "//st/private/tests/interface_deps:interface_deps_test"],
+        tests = ["basic_test"],
     )

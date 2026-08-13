@@ -1,5 +1,6 @@
 load("@rules_plc_pip_deps//:requirements.bzl", "requirement")
 load("@rules_python//python:py_binary.bzl", "py_binary")
+load(":toolchain.bzl", "st_toolchain")
 
 toolchain_type(
     name = "toolchain_type",
@@ -31,4 +32,26 @@ py_binary(
     main = "private/generate_weak_stubs.py",
     visibility = ["//visibility:public"],
     deps = [requirement("jinja2")],
+)
+
+# Minimal stub compiler/linker and toolchain registration for tests and
+# analysis-time evaluation in the repository. These are intentionally tiny
+# no-op scripts used only to satisfy Bazel's toolchain resolution during
+# unit tests; they are not suitable for real compilation.
+exports_files([
+    "plc_stub.sh",
+    "dummy_linker.sh",
+])
+
+st_toolchain(
+    name = "plc_compiler",
+    compiler = ":plc_stub.sh",
+    compiler_runtime_files = [],
+    linker = ":dummy_linker.sh",
+)
+
+toolchain(
+    name = "plc_toolchain_register",
+    toolchain = ":plc_compiler",
+    toolchain_type = "//st:toolchain_type",
 )
