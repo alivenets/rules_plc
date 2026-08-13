@@ -25,15 +25,29 @@ def _st_library_impl(ctx):
     # implementation of their own. They're compiled alongside srcs so their
     # constructors are emitted exactly once, by the owning library; dependents
     # only ever see them via -i, never recompiling them.
-    own_interfaces = depset(ctx.files.srcs + ctx.files.hdrs, transitive = [dep_interfaces])
+    # Export only hdrs as compile-time interfaces; srcs are implementation
+    # and must not be re-exported to dependents to avoid duplicate symbols
+    # for direct-address variables.
+    own_interfaces = depset(ctx.files.hdrs, transitive = [dep_interfaces])
+
+    # Own srcs plus all transitive deps' srcs, exposed separately from
+    # own_interfaces above via StInfo.compilation_context.sources. Consumers
+    # (this rule's own compile below, and st_binary) need this in addition to
+    # hdrs-only interfaces to resolve POU types directly instantiated from a
+    # dependency's srcs, not just its hdrs, via plc's `-i`.
+    own_sources = depset(ctx.files.srcs, transitive = [dep_info.compilation_context.sources])
+
+    # Own compile needs bodies-as-interfaces too (dep_interfaces alone is
+    # hdrs-only), same reasoning as own_sources above; this is not re-exported
+    # onward -- only own_interfaces (hdrs-only) is.
+    dep_compile_interfaces = depset(transitive = [dep_interfaces, dep_info.compilation_context.sources])
 
     out = ctx.actions.declare_file(ctx.label.name + ".o")
 
     args = ctx.actions.args()
     args.add("-c")
     args.add_all(ctx.files.srcs)
-    args.add_all(ctx.files.hdrs)
-    args.add_all(dep_interfaces, before_each = "-i")
+    args.add_all(dep_compile_interfaces, before_each = "-i")
 
     # Add direct-only interface deps as -i inputs (non-transitive)
     if interface_dep_interfaces:
@@ -43,7 +57,7 @@ def _st_library_impl(ctx):
     ctx.actions.run(
         executable = compiler,
         arguments = [args],
-        inputs = depset(toolchain.compiler_runtime_files, transitive = [own_interfaces, interface_dep_interfaces]),
+        inputs = depset(ctx.files.srcs + toolchain.compiler_runtime_files, transitive = [own_interfaces, dep_compile_interfaces, interface_dep_interfaces]),
         outputs = [out],
         mnemonic = "StCompile",
         progress_message = "Compiling ST library %{label}",
@@ -82,10 +96,8 @@ def _st_library_impl(ctx):
         DefaultInfo(files = depset([out])),
         StInfo(
             compilation_context = create_st_compilation_context(
-                # plc's -i ignores implementation bodies and only reads signatures, so
-                # srcs can double as the interface consumers pass via -i -- no separate
-                # hand-written interface file needed.
                 interfaces = own_interfaces,
+                sources = own_sources,
             ),
             linking_context = create_st_linking_context(
                 objects = depset([out], transitive = [dep_objects]),

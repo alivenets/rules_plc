@@ -1,0 +1,23 @@
+load("@rules_plc//st:defs.bzl", "st_binary", "st_library")
+
+st_library(
+    name = "mylib",
+    srcs = ["lib.st"],
+    visibility = ["//visibility:public"],
+)
+
+st_binary(
+    name = "app",
+    program = "direct_address.st",
+    visibility = ["//visibility:public"],
+    deps = [":mylib"],
+)
+
+filegroup(
+    name = "all",
+    srcs = [
+        ":app",
+        ":mylib",
+    ],
+    visibility = ["//visibility:public"],
+)

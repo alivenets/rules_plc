@@ -10,7 +10,8 @@ cc_common.merge_cc_infos.
 StCompilationContext = provider(
     doc = "Interface files a target exposes to dependents at compile time.",
     fields = {
-        "interfaces": "depset of interface Files (compiled srcs plus declaration-only hdrs): this target's plus all transitive deps'.",
+        "interfaces": "depset of declaration-only interface Files (hdrs): this target's plus all transitive deps'. Safe to pass to plc's `-i` at any depth -- hdrs carry no implementation, so re-exporting them never causes duplicate symbols.",
+        "sources": "depset of implementation ST source Files (srcs): this target's plus all transitive deps'. Unlike `interfaces`, this also carries dependency bodies, which plc's `-i` needs to resolve POU types directly instantiated from a dep's srcs (not just its hdrs) -- read by this target's own compile plus st_binary's, but never re-exported as `interfaces` to further dependents.",
     },
 )
 
@@ -53,8 +54,8 @@ StLibraryStubsInfo = provider(
     },
 )
 
-def create_st_compilation_context(interfaces = depset()):
-    return StCompilationContext(interfaces = interfaces)
+def create_st_compilation_context(interfaces = depset(), sources = depset()):
+    return StCompilationContext(interfaces = interfaces, sources = sources)
 
 def create_st_linking_context(objects = depset()):
     return StLinkingContext(objects = objects)
@@ -64,6 +65,7 @@ def merge_st_infos(st_infos):
     return StInfo(
         compilation_context = create_st_compilation_context(
             interfaces = depset(transitive = [info.compilation_context.interfaces for info in st_infos]),
+            sources = depset(transitive = [info.compilation_context.sources for info in st_infos]),
         ),
         linking_context = create_st_linking_context(
             objects = depset(transitive = [info.linking_context.objects for info in st_infos]),

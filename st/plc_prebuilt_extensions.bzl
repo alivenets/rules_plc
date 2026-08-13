@@ -23,8 +23,8 @@ toolchain(
 )
 """
 
-_PLC_RELEASE_URL = "https://github.com/alivenets/rules_plc/releases/download/0.1.5/plc-linux-x86_64.tar.gz"
-_PLC_RELEASE_SHA256 = "31177633ae225bf6774730db9afa043f0c8f2fc59372d5507f4859954c2e72b0"
+_PLC_RELEASE_URL = "https://github.com/alivenets/rules_plc/releases/download/0.1.8/plc-linux-x86_64.tar.gz"
+_PLC_RELEASE_SHA256 = "4f4fdf02905cf4003caafbe4a591c5a3d352b818c41ea430b3da927f8025b1d9"
 _PLC_RELEASE_STRIP_PREFIX = "plc-linux-x86_64"
 
 def _sanitize_label_injections(label_injections):

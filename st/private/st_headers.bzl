@@ -63,11 +63,17 @@ def _st_library_headers_gen_impl(ctx):
     dep_info = merge_st_infos([dep[StInfo] for dep in ctx.attr.deps])
     compiler = ctx.toolchains["//st:toolchain_type"].compiler
     all_sources = ctx.files.srcs + ctx.files.hdrs
+
+    # hdrs-only interfaces alone aren't enough to resolve POU types srcs/hdrs
+    # directly instantiate from a dep's srcs -- see StInfo.compilation_context.sources.
+    dep_interfaces = depset(
+        transitive = [dep_info.compilation_context.interfaces, dep_info.compilation_context.sources],
+    )
     headers_dir = generate_st_headers(
         ctx,
         compiler,
         all_sources,
-        dep_info.compilation_context.interfaces,
+        dep_interfaces,
         auto_include_sources = ctx.files.hdrs,
     )
 

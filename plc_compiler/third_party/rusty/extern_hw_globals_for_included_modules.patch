@@ -1,0 +1,241 @@
+diff --git a/compiler/plc_ast/src/pre_processor.rs b/compiler/plc_ast/src/pre_processor.rs
+index 9e99969e4f..1a258b814d 100644
+--- a/compiler/plc_ast/src/pre_processor.rs
++++ b/compiler/plc_ast/src/pre_processor.rs
+@@ -196,6 +196,7 @@ fn process_global_variables(
+     known_hw_globals: &mut rustc_hash::FxHashSet<String>,
+ ) {
+     let mut mangled_globals = Vec::new();
++    let mut mangled_globals_external = Vec::new();
+ 
+     for (linkage, global_var) in
+         unit.global_vars.iter_mut().flat_map(|block| block.variables.iter_mut().map(|it| (block.linkage, it)))
+@@ -232,13 +233,23 @@ fn process_global_variables(
+                         address: None,
+                         location: node.location.clone(),
+                     };
+-                    mangled_globals.push(internal_mangled_var);
++                    // Only the unit that owns this declaration (Internal linkage) should
++                    // define the backing global -- one brought in via `-i`/Include (or
++                    // {external}) must reference it as extern, or every consumer of the
++                    // declaring module would redefine the same hardware-bound storage,
++                    // duplicating it at link time.
++                    if linkage == LinkageType::Internal {
++                        mangled_globals.push(internal_mangled_var);
++                    } else {
++                        mangled_globals_external.push(internal_mangled_var);
++                    }
+                 }
+             }
+         }
+     }
+ 
+-    update_generated_globals(unit, mangled_globals);
++    update_generated_globals(unit, mangled_globals, LinkageType::Internal);
++    update_generated_globals(unit, mangled_globals_external, LinkageType::External);
+ }
+ 
+ fn process_var_config_variables(
+@@ -288,7 +299,9 @@ fn process_var_config_variables(
+     }
+ 
+     unit.var_config = var_config;
+-    update_generated_globals(unit, variables);
++    // VAR_CONFIG bindings are always this unit's own, regardless of where the
++    // template `AT %I*` placeholder they resolve was declared.
++    update_generated_globals(unit, variables, LinkageType::Internal);
+ }
+ 
+ /// Processes struct members declared with IEC hardware addresses (e.g. `c AT %IX1.2 : BOOL`).
+@@ -300,8 +313,12 @@ fn process_struct_hardware_variables(
+     known_hw_globals: &mut rustc_hash::FxHashSet<String>,
+ ) {
+     let mut mangled_globals = Vec::new();
++    let mut mangled_globals_external = Vec::new();
+ 
+     for dt in unit.user_types.iter_mut() {
++        // Only the struct's own (Internal-linkage) declaration owns and defines its
++        // hardware-backed members' storage -- see process_global_variables above.
++        let owns_definition = dt.linkage == LinkageType::Internal;
+         if let DataType::StructType { variables, .. } = &mut dt.data_type {
+             for var in variables.iter_mut() {
+                 if let Some(ref node) = var.address {
+@@ -333,7 +350,11 @@ fn process_struct_hardware_variables(
+                                 address: None,
+                                 location: node.location.clone(),
+                             };
+-                            mangled_globals.push(internal_mangled_var);
++                            if owns_definition {
++                                mangled_globals.push(internal_mangled_var);
++                            } else {
++                                mangled_globals_external.push(internal_mangled_var);
++                            }
+                         }
+                     }
+                 }
+@@ -341,7 +362,8 @@ fn process_struct_hardware_variables(
+         }
+     }
+ 
+-    update_generated_globals(unit, mangled_globals);
++    update_generated_globals(unit, mangled_globals, LinkageType::Internal);
++    update_generated_globals(unit, mangled_globals_external, LinkageType::External);
+ }
+ 
+ /// Processes POU-scoped variables declared with IEC hardware addresses (e.g. `AT %IX1.2.3.4`).
+@@ -359,8 +381,12 @@ fn process_pou_hardware_variables(
+     known_hw_globals: &mut rustc_hash::FxHashSet<String>,
+ ) {
+     let mut mangled_globals = Vec::new();
++    let mut mangled_globals_external = Vec::new();
+ 
+     for pou in unit.pous.iter_mut() {
++        // Only the POU's own (Internal-linkage) declaration owns and defines its
++        // hardware-backed members' storage -- see process_global_variables above.
++        let owns_definition = pou.linkage == LinkageType::Internal;
+         for var in pou.variable_blocks.iter_mut().flat_map(|b| b.variables.iter_mut()) {
+             let Some(ref node) = var.address else { continue };
+             let AstStatement::HardwareAccess(hardware) = &node.stmt else { continue };
+@@ -383,32 +409,38 @@ fn process_pou_hardware_variables(
+             var.initializer = Some(mangled_initializer);
+ 
+             if known_hw_globals.insert(name.clone()) {
+-                mangled_globals.push(Variable {
++                let global = Variable {
+                     name,
+                     data_type_declaration: ref_ty.unwrap_or(var.data_type_declaration.clone()),
+                     initializer: None,
+                     address: None,
+                     location: node.location.clone(),
+-                });
++                };
++                if owns_definition {
++                    mangled_globals.push(global);
++                } else {
++                    mangled_globals_external.push(global);
++                }
+             }
+         }
+     }
+ 
+-    update_generated_globals(unit, mangled_globals);
++    update_generated_globals(unit, mangled_globals, LinkageType::Internal);
++    update_generated_globals(unit, mangled_globals_external, LinkageType::External);
+ }
+ 
+-fn update_generated_globals(unit: &mut CompilationUnit, mangled_globals: Vec<Variable>) {
++fn update_generated_globals(unit: &mut CompilationUnit, mangled_globals: Vec<Variable>, linkage: LinkageType) {
+     if mangled_globals.is_empty() {
+         return;
+     }
+-    let mut block = if let Some(index) = unit
+-        .global_vars
+-        .iter()
+-        .position(|block| block.kind == VariableBlockType::Global && block.location.is_builtin_internal())
+-    {
++    let mut block = if let Some(index) = unit.global_vars.iter().position(|block| {
++        block.kind == VariableBlockType::Global
++            && block.location.is_builtin_internal()
++            && block.linkage == linkage
++    }) {
+         unit.global_vars.remove(index)
+     } else {
+-        VariableBlock::default().with_block_type(VariableBlockType::Global)
++        VariableBlock::default().with_block_type(VariableBlockType::Global).with_linkage(linkage)
+     };
+     for var in mangled_globals {
+         if !block.variables.contains(&var) {
+diff --git a/compiler/plc_driver/src/tests/external_files.rs b/compiler/plc_driver/src/tests/external_files.rs
+index e2463d3d45..36dce1c4c3 100644
+--- a/compiler/plc_driver/src/tests/external_files.rs
++++ b/compiler/plc_driver/src/tests/external_files.rs
+@@ -62,6 +62,44 @@ fn external_file_global_var() {
+     filtered_assert_snapshot!(results.join("\n"));
+ }
+ 
++#[test]
++fn external_file_function_block_with_hardware_address_member_is_not_redefined() {
++    // A FUNCTION_BLOCK with a hardware-addressed member is compiled into its own
++    // object by whatever module declares it (Internal linkage there), and also
++    // needs to be visible -- via `-i`/Include linkage -- to any other module that
++    // instantiates it. The backing global for the hardware address must be defined
++    // exactly once (by the Internal/declaring module) and only referenced as
++    // `external` everywhere else, or two separately-compiled objects that both
++    // instantiate the FUNCTION_BLOCK would each define the same symbol and fail to
++    // link.
++    let prog = SourceCode::new(
++        "
++    FUNCTION main : DINT
++    VAR
++        fb_instance : MyFb;
++    END_VAR
++        fb_instance();
++        main := 0;
++    END_FUNCTION
++    ",
++        "main.st",
++    );
++
++    let ext = SourceCode::new(
++        "
++    FUNCTION_BLOCK MyFb
++    VAR
++        Addr AT %QX0.0.1.0 : INT;
++    END_VAR
++    END_FUNCTION_BLOCK
++    ",
++        "external.st",
++    );
++
++    let results = compile_to_string(vec![prog], vec![ext], None, DebugLevel::None).unwrap();
++    filtered_assert_snapshot!(results.join("\n"));
++}
++
+ #[test]
+ //TODO: is this test redundant? I think validation should catch this already and it should not land
+ //in codegen
+diff --git a/compiler/plc_driver/src/tests/snapshots/plc_driver__tests__external_files__external_file_function_block_with_hardware_address_member_is_not_redefined.snap b/compiler/plc_driver/src/tests/snapshots/plc_driver__tests__external_files__external_file_function_block_with_hardware_address_member_is_not_redefined.snap
+new file mode 100644
+index 0000000000..081801549f
+--- /dev/null
++++ b/compiler/plc_driver/src/tests/snapshots/plc_driver__tests__external_files__external_file_function_block_with_hardware_address_member_is_not_redefined.snap
+@@ -0,0 +1,39 @@
++---
++source: compiler/plc_driver/src/tests/external_files.rs
++assertion_line: 100
++expression: "results.join(\"\\n\")"
++---
++; ModuleID = 'main.st'
++source_filename = "main.st"
++target datalayout = "[filtered]"
++target triple = "[filtered]"
++
++%MyFb = type { ptr }
++
++define i32 @main() {
++entry:
++  %main = alloca i32, align [filtered]
++  %fb_instance = alloca %MyFb, align [filtered]
++  call void @llvm.memset.p0.i64(ptr align [filtered] %fb_instance, i8 0, i64 ptrtoint (ptr getelementptr (%MyFb, ptr null, i32 1) to i64), i1 false)
++  store i32 0, ptr %main, align [filtered]
++  call void @MyFb(ptr %fb_instance)
++  store i32 0, ptr %main, align [filtered]
++  %main_ret = load i32, ptr %main, align [filtered]
++  ret i32 %main_ret
++}
++
++declare void @MyFb(ptr)
++
++; Function Attrs: nocallback nofree nounwind willreturn memory(argmem: write)
++declare void @llvm.memset.p0.i64(ptr writeonly captures(none), i8, i64, i1 immarg) #0
++
++attributes #0 = { nocallback nofree nounwind willreturn memory(argmem: write) }
++
++; ModuleID = 'external.st'
++source_filename = "external.st"
++target datalayout = "[filtered]"
++target triple = "[filtered]"
++
++@__PI_0_0_1_0 = external global i16
++
++declare void @MyFb(ptr)

@@ -71,7 +71,14 @@ def _st_binary_impl(ctx):
     toolchain = ctx.toolchains["//st:toolchain_type"]
 
     dep_info = merge_st_infos([dep[StInfo] for dep in ctx.attr.deps])
-    dep_interfaces = dep_info.compilation_context.interfaces
+
+    # dep_interfaces (hdrs) alone isn't enough: a program can directly
+    # instantiate a POU (e.g. a FUNCTION_BLOCK) declared in a dependency's
+    # srcs, not just its hdrs, so those srcs must also be visible to plc via
+    # `-i` -- see StCompilationContext.sources in //st:providers.bzl.
+    dep_interfaces = depset(
+        transitive = [dep_info.compilation_context.interfaces, dep_info.compilation_context.sources],
+    )
 
     own_pous = ctx.files.srcs + ctx.files.hdrs
     if ctx.file.program == None and not own_pous:
@@ -139,20 +146,36 @@ touch {marker}
 
     out = _link(ctx, toolchain, own_objects)
 
-    # Also export a plain CcInfo, wrapping pou_object (if any) as a linkable
-    # library, so non-ST rules (e.g. cc_test's deps) can depend on an
-    # st_binary directly to exercise FUNCTION/FUNCTION_BLOCK POUs defined in
-    # its own srcs -- the same way st_library does for its own compiled
-    # object. main_object is deliberately never part of this -- see above.
-    own_cc_infos = [dep[CcInfo] for dep in ctx.attr.deps]
-    if pou_object != None:
-        cc_toolchain = find_cc_toolchain(ctx)
-        feature_configuration = cc_common.configure_features(
-            ctx = ctx,
+    # Export a plain CcInfo constructed from StInfo linking contexts of
+    # `deps`, so linking a `st_binary` against `st_library` uses the ST
+    # objects (not any CcInfo that may re-export unrelated C++ objects).
+    # Build a CcInfo for each st dep by wrapping its StInfo.linking_context
+    # objects into a cc linking context.
+    cc_toolchain = find_cc_toolchain(ctx)
+    feature_configuration = cc_common.configure_features(
+        ctx = ctx,
+        cc_toolchain = cc_toolchain,
+        requested_features = ctx.features,
+        unsupported_features = ctx.disabled_features,
+    )
+
+    dep_cc_infos = []
+    for dep in ctx.attr.deps:
+        st_info = dep[StInfo]
+        dep_linking_context, _ = cc_common.create_linking_context_from_compilation_outputs(
+            actions = ctx.actions,
+            name = dep.label.name,
+            feature_configuration = feature_configuration,
             cc_toolchain = cc_toolchain,
-            requested_features = ctx.features,
-            unsupported_features = ctx.disabled_features,
+            compilation_outputs = cc_common.create_compilation_outputs(
+                objects = st_info.linking_context.objects,
+                pic_objects = st_info.linking_context.objects,
+            ),
+            disallow_dynamic_library = True,
         )
+        dep_cc_infos.append(CcInfo(linking_context = dep_linking_context))
+
+    if pou_object != None:
         own_linking_context, _ = cc_common.create_linking_context_from_compilation_outputs(
             actions = ctx.actions,
             name = ctx.label.name,
@@ -164,12 +187,10 @@ touch {marker}
             ),
             disallow_dynamic_library = True,
         )
+        own_cc_infos = [CcInfo(linking_context = own_linking_context)] + dep_cc_infos
+    else:
+        own_cc_infos = dep_cc_infos
 
-        # Does not include plc's generated C headers -- this compile-only rule
-        # is wrapped, along with st_library_headers_gen, by the public
-        # st_binary macro below, which bundles both into one target (same
-        # pattern as st_library).
-        own_cc_infos = [CcInfo(linking_context = own_linking_context)] + own_cc_infos
     exported_cc_info = cc_common.merge_cc_infos(cc_infos = own_cc_infos)
 
     return [
