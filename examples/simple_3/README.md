@@ -1,7 +1,7 @@
 # simple
 
 `hello`: a standalone `st_binary` (just `hello.st`'s `PROGRAM hello`), with
-no library dependencies and no `srcs`/`hdrs` of its own.
+no library dependencies and no `srcs` of its own.
 
 `hello_test.cc` runs the compiled `hello` executable (found via
 `@bazel_tools//tools/cpp/runfiles`, added as `data`) and asserts on its

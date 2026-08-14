@@ -30,8 +30,10 @@ toolchain(
 # extern "C" signatures.
 st_library(
     name = "point_lib",
-    srcs = ["point_lib.st"],
-    hdrs = ["point_types.dut"],
+    srcs = [
+        "point_lib.st",
+        "point_types.dut",
+    ],
 )
 
 cc_test(

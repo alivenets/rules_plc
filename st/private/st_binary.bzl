@@ -103,29 +103,26 @@ def _st_binary_impl(ctx):
 
     dep_info = merge_st_infos([dep[StInfo] for dep in ctx.attr.deps])
 
-    # dep_interfaces (hdrs) alone isn't enough: a program can directly
-    # instantiate a POU (e.g. a FUNCTION_BLOCK) declared in a dependency's
-    # srcs, not just its hdrs, so those srcs must also be visible to plc via
-    # `-i` -- see StCompilationContext.sources in //st:providers.bzl.
-    dep_interfaces = depset(
-        transitive = [dep_info.compilation_context.interfaces, dep_info.compilation_context.sources],
-    )
+    # Every ST source in the transitive closure is passed to plc via `-i`
+    # so this binary's program can resolve any POU/TYPE declared in a dep --
+    # see StCompilationContext.sources in //st:providers.bzl.
+    dep_sources = dep_info.compilation_context.sources
 
-    own_pous = ctx.files.srcs + ctx.files.hdrs
+    own_pous = ctx.files.srcs
     if ctx.file.program == None and not own_pous:
-        fail(("%s must set `program` (an ST PROGRAM to run), `srcs`, or `hdrs` " +
-              "(FUNCTION/FUNCTION_BLOCK POUs to export) -- with none of those " +
+        fail(("%s must set `program` (an ST PROGRAM to run) or `srcs` " +
+              "(FUNCTION/FUNCTION_BLOCK POUs to export) -- with neither " +
               "there's nothing to build. For a library with no runnable entry " +
               "point, use st_library instead.") % ctx.label)
 
-    # srcs/hdrs (this binary's own FUNCTION/FUNCTION_BLOCK POUs, as opposed to
+    # srcs (this binary's own FUNCTION/FUNCTION_BLOCK POUs, as opposed to
     # its PROGRAM entry point) are compiled into their own object, separate
     # from main/wrapper below -- srcs double as their own interface, like
     # st_library does, so program can call into them.
     pou_object = None
     pou_interfaces = []
     if own_pous:
-        pou_object = _compile(ctx, toolchain, ".o", own_pous, dep_interfaces, progress_verb = "sources")
+        pou_object = _compile(ctx, toolchain, ".o", own_pous, dep_sources, progress_verb = "sources")
         pou_interfaces = own_pous
 
     validation_outputs = []
@@ -163,14 +160,14 @@ touch {marker}
         )
 
         # main/wrapper (the PROGRAM entry point) is compiled separately from
-        # srcs/hdrs above and never exported via CcInfo below -- unlike
+        # srcs above and never exported via CcInfo below -- unlike
         # st_library, this object defines a literal `main` symbol, which
         # would collide with (and silently pre-empt) a cc_test's own main()
         # if it were ever linked into one.
-        main_object = _compile(ctx, toolchain, "_main.o", [wrapper, ctx.file.program], dep_interfaces, extra_interfaces = pou_interfaces, progress_verb = "entry point")
+        main_object = _compile(ctx, toolchain, "_main.o", [wrapper, ctx.file.program], dep_sources, extra_interfaces = pou_interfaces, progress_verb = "entry point")
         own_objects = [main_object] + ([pou_object] if pou_object else [])
     else:
-        # No program: srcs/hdrs (required non-empty above) are linked as-is,
+        # No program: srcs (required non-empty above) are linked as-is,
         # with no generated wrapper -- if one of them defines its own
         # FUNCTION main, that's this binary's entry point.
         own_objects = [pou_object]
@@ -239,12 +236,8 @@ touch {marker}
 
 _COMMON_ATTRS = {
     "srcs": attr.label_list(
-        allow_files = [".st"],
-        doc = "Additional ST source files implementing FUNCTION/FUNCTION_BLOCK POUs local to this binary, compiled alongside program.",
-    ),
-    "hdrs": attr.label_list(
-        allow_files = [".dut", ".st"],
-        doc = "Full type/declaration files (e.g. .dut TYPE definitions) local to this binary, with no implementation of their own. Compiled alongside program.",
+        allow_files = [".st", ".dut"],
+        doc = "Additional ST source files (.st implementations, .dut TYPE declarations) local to this binary, compiled alongside program.",
     ),
     "deps": attr.label_list(
         providers = [StInfo],
@@ -252,7 +245,7 @@ _COMMON_ATTRS = {
     ),
     "cc_deps": attr.label_list(
         providers = [CcInfo],
-        doc = "Native (C/C++) libraries linked into this binary -- e.g. an st_library_stub, or an ordinary cc_library implementing {external} POUs declared in a dep's srcs/hdrs. Their libraries/objects are passed straight to plc's link step; their compilation context is not consumed (ST sources don't #include C headers).",
+        doc = "Native (C/C++) libraries linked into this binary -- e.g. an st_library_stub, or an ordinary cc_library implementing {external} POUs declared in a dep's srcs. Their libraries/objects are passed straight to plc's link step; their compilation context is not consumed (ST sources don't #include C headers).",
     ),
     "_cc_toolchain": attr.label(default = Label("@rules_cc//cc:current_cc_toolchain")),
 }
@@ -264,12 +257,12 @@ _st_binary = rule(
         _COMMON_ATTRS,
         program = attr.label(
             allow_single_file = [".st"],
-            doc = "The .st file declaring the PROGRAM that is this binary's cyclic entry point; the PROGRAM's name must match the file's basename. st_binary generates and links in the FUNCTION main wrapper that instantiates and calls it once -- do not write your own FUNCTION main here. Optional: if omitted, srcs/hdrs are linked as-is with no generated wrapper -- one of them must then define its own FUNCTION main.",
+            doc = "The .st file declaring the PROGRAM that is this binary's cyclic entry point; the PROGRAM's name must match the file's basename. st_binary generates and links in the FUNCTION main wrapper that instantiates and calls it once -- do not write your own FUNCTION main here. Optional: if omitted, srcs are linked as-is with no generated wrapper -- one of them must then define its own FUNCTION main.",
         ),
     ),
     toolchains = ["//st:toolchain_type"] + use_cc_toolchain(),
     fragments = ["cpp"],
-    doc = "Compiles a PROGRAM (plus any st_library deps) into a native executable, auto-generating the FUNCTION main entry point that runs it. If `program` is omitted, srcs/hdrs are linked as-is (one of them must define its own FUNCTION main). Internal -- use the public st_binary macro below.",
+    doc = "Compiles a PROGRAM (plus any st_library deps) into a native executable, auto-generating the FUNCTION main entry point that runs it. If `program` is omitted, srcs are linked as-is (one of them must define its own FUNCTION main). Internal -- use the public st_binary macro below.",
 )
 
 def _st_binary_provider_fusion_impl(ctx):
@@ -296,7 +289,7 @@ def _st_binary_provider_fusion_impl(ctx):
         providers.append(headers_target[StHeadersInfo])
         providers.append(cc_common.merge_cc_infos(cc_infos = [binary_target[CcInfo], headers_target[CcInfo]]))
     else:
-        # No srcs/hdrs of its own to generate headers for -- see st_binary
+        # No srcs of its own to generate headers for -- see st_binary
         # below.
         providers.append(binary_target[CcInfo])
 
@@ -312,32 +305,29 @@ _st_binary_provider_fusion = rule(
     doc = "Combines an st_binary with its generated headers (if any) into one target, forwarding the binary's own DefaultInfo (so the fused target stays runnable/testable) and OutputGroupInfo (so its _validation actions -- e.g. StValidateProgram -- still run). Internal -- use the public st_binary macro below.",
 )
 
-def st_binary(name, srcs = [], hdrs = [], deps = [], cc_deps = [], program = None, visibility = None, **kwargs):
+def st_binary(name, srcs = [], deps = [], cc_deps = [], program = None, visibility = None, **kwargs):
     """Compiles a PROGRAM (plus any st_library deps) into a native executable, auto-generating the FUNCTION main entry point that runs it.
 
-    If srcs/hdrs are given, also generates and exports plc's C headers for
-    them (same as st_library), so a cc_test/cc_library depending on this
-    target can #include the plc-generated .h directly instead of hand-
-    declaring extern "C" signatures.
+    If srcs are given, also generates and exports plc's C headers for them
+    (same as st_library), so a cc_test/cc_library depending on this target
+    can #include the plc-generated .h directly instead of hand-declaring
+    extern "C" signatures.
 
     Args:
         name: Name of this binary.
-        srcs: Additional ST source files implementing FUNCTION/FUNCTION_BLOCK
-            POUs local to this binary, compiled alongside program.
-        hdrs: Full type/declaration files (e.g. .dut TYPE definitions) local
-            to this binary, with no implementation of their own. Compiled
-            alongside program.
+        srcs: Additional ST source files (.st implementations, .dut TYPE
+            declarations) local to this binary, compiled alongside program.
         deps: st_library targets this binary's program calls into.
         cc_deps: Native (C/C++) libraries linked into this binary -- e.g. an
             st_library_stub, or an ordinary cc_library implementing
-            {external} POUs declared in a dep's srcs/hdrs.
+            {external} POUs declared in a dep's srcs.
         program: The .st file declaring the PROGRAM that is this binary's
             cyclic entry point; the PROGRAM's name must match the file's
             basename. st_binary generates and links in the FUNCTION main
             wrapper that instantiates and calls it once -- do not write your
-            own FUNCTION main here. Optional: if omitted, srcs/hdrs are
-            linked as-is with no generated wrapper -- one of them must then
-            define its own FUNCTION main.
+            own FUNCTION main here. Optional: if omitted, srcs are linked
+            as-is with no generated wrapper -- one of them must then define
+            its own FUNCTION main.
         visibility: Visibility of this binary (the underlying compile-only/
             headers-only targets stay private regardless).
         **kwargs: Forwarded to the underlying compile-only rule.
@@ -346,7 +336,6 @@ def st_binary(name, srcs = [], hdrs = [], deps = [], cc_deps = [], program = Non
     _st_binary(
         name = bin_name,
         srcs = srcs,
-        hdrs = hdrs,
         deps = deps,
         cc_deps = cc_deps,
         program = program,
@@ -356,12 +345,11 @@ def st_binary(name, srcs = [], hdrs = [], deps = [], cc_deps = [], program = Non
 
     # Always fused, even with no headers to generate.
     headers_gen_name = None
-    if srcs or hdrs:
+    if srcs:
         headers_gen_name = name + "_headers"
         st_library_headers_gen(
             name = headers_gen_name,
             srcs = srcs,
-            hdrs = hdrs,
             deps = deps,
             visibility = ["//visibility:private"],
         )

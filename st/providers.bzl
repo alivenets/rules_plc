@@ -8,10 +8,9 @@ cc_common.merge_cc_infos.
 
 # buildifier: disable=name-conventions
 StCompilationContext = provider(
-    doc = "Interface files a target exposes to dependents at compile time.",
+    doc = "ST source files a target exposes to dependents at compile time.",
     fields = {
-        "interfaces": "depset of declaration-only interface Files (hdrs): this target's plus all transitive deps'. Safe to pass to plc's `-i` at any depth -- hdrs carry no implementation, so re-exporting them never causes duplicate symbols.",
-        "sources": "depset of implementation ST source Files (srcs): this target's plus all transitive deps'. Unlike `interfaces`, this also carries dependency bodies, which plc's `-i` needs to resolve POU types directly instantiated from a dep's srcs (not just its hdrs) -- read by this target's own compile plus st_binary's, but never re-exported as `interfaces` to further dependents.",
+        "sources": "depset of ST source Files (.st/.dut): this target's own srcs plus all transitive deps'. Passed to dependents' compiles via plc's `-i` so cross-library POU/TYPE references resolve.",
     },
 )
 
@@ -32,10 +31,10 @@ StInfo = provider(
 )
 
 StHeadersInfo = provider(
-    doc = "Set by st_library_headers_gen (see st/private/st_headers.bzl) -- and forwarded by the public st_library/st_binary macros' combine steps -- for whatever generated plc's C headers for a target's own srcs/hdrs. Read by _st_library_stub_source (see st/private/library_stubs.bzl) to scope {external} stub generation to exactly that target's own srcs/hdrs, using the same already-generated headers rather than regenerating them.",
+    doc = "Set by st_library_headers_gen (see st/private/st_headers.bzl) -- and forwarded by the public st_library/st_binary macros' combine steps -- for whatever generated plc's C headers for a target's own srcs. Read by _st_library_stub_source (see st/private/library_stubs.bzl) to scope {external} stub generation to exactly that target's own srcs, using the same already-generated headers rather than regenerating them.",
     fields = {
-        "headers_dir": "The directory generate_st_headers produced for this target's own srcs/hdrs (a single File, not a depset).",
-        "sources": "depset of this target's own ST source Files (srcs/hdrs) headers_dir was generated from.",
+        "headers_dir": "The directory generate_st_headers produced for this target's own srcs (a single File, not a depset).",
+        "sources": "depset of this target's own ST source Files (srcs) headers_dir was generated from.",
     },
 )
 
@@ -50,12 +49,12 @@ StLibraryStubSourceInfo = provider(
 StLibraryStubsInfo = provider(
     doc = "Set by st_library_stubs_aspect (see st/private/library_stubs.bzl) on the st_library target it's applied to.",
     fields = {
-        "cc_info": "A CcInfo linking in a __attribute__((weak)) zero-value stub for each {external} FUNCTION/FUNCTION_BLOCK declared in the target's own srcs/hdrs, or None if it declared none.",
+        "cc_info": "A CcInfo linking in a __attribute__((weak)) zero-value stub for each {external} FUNCTION/FUNCTION_BLOCK declared in the target's own srcs, or None if it declared none.",
     },
 )
 
-def create_st_compilation_context(interfaces = depset(), sources = depset()):
-    return StCompilationContext(interfaces = interfaces, sources = sources)
+def create_st_compilation_context(sources = depset()):
+    return StCompilationContext(sources = sources)
 
 def create_st_linking_context(objects = depset()):
     return StLinkingContext(objects = objects)
@@ -64,7 +63,6 @@ def merge_st_infos(st_infos):
     """Merges the compilation and linking contexts of st_infos, mirroring cc_common.merge_cc_infos."""
     return StInfo(
         compilation_context = create_st_compilation_context(
-            interfaces = depset(transitive = [info.compilation_context.interfaces for info in st_infos]),
             sources = depset(transitive = [info.compilation_context.sources for info in st_infos]),
         ),
         linking_context = create_st_linking_context(

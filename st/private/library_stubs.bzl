@@ -28,7 +28,7 @@ load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 load("//st:providers.bzl", "StHeadersInfo", "StLibraryStubSourceInfo", "StLibraryStubsInfo")
 
 def _st_library_stub_source_impl(ctx):
-    # An st_binary with neither srcs nor hdrs of its own (just a program)
+    # An st_binary with no srcs of its own (just a program)
     # carries no StHeadersInfo -- there's nothing of its own to stub.
     if StHeadersInfo not in ctx.attr.library:
         return [StLibraryStubSourceInfo(stub_c = None, headers_dir = None)]
@@ -56,7 +56,7 @@ _st_library_stub_source = rule(
     attrs = {
         "library": attr.label(
             mandatory = True,
-            # An st_binary with neither srcs nor hdrs of its own doesn't
+            # An st_binary with no srcs of its own doesn't
             # provide StHeadersInfo (nothing of its own to generate headers
             # for -- see st_binary.bzl), but every st_library/st_binary
             # always provides CcInfo, so that's the common check that works
@@ -139,7 +139,7 @@ _st_library_stub = rule(
 )
 
 def st_library_stub(name, library, visibility = None, **kwargs):
-    """A CcInfo target: __attribute__((weak)) zero-value stubs for every {external} FUNCTION/FUNCTION_BLOCK declared in `library`'s own srcs/hdrs.
+    """A CcInfo target: __attribute__((weak)) zero-value stubs for every {external} FUNCTION/FUNCTION_BLOCK declared in `library`'s own srcs.
 
     Add to a cc_test/st_binary/st_test's deps so it still links (falling
     back to the stub) when the real native implementation isn't linked in.

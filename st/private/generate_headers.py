@@ -9,7 +9,7 @@ already #includes <dependencies.plc.h> unconditionally as its own first
 include, this makes any of a library's own module headers pull those in
 transitively, instead of requiring consumers to work out and apply the right
 #include order themselves. Callers must only pass declaration-only modules
-as auto-includes (e.g. hdrs/DUTs) -- a module that itself references *other*
+as auto-includes (e.g. .dut TYPE files) -- a module that itself references *other*
 modules in the same library risks an #include-order hazard if auto-included
 this way (reached before its own type/struct definitions, while referencing
 a type that isn't defined yet).
