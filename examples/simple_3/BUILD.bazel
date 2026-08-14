@@ -1,0 +1,25 @@
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("@rules_plc//st:defs.bzl", "st_library", "st_binary")
+
+st_library(
+    name = "can_reader_lib",
+    srcs = ["can_reader.st"],
+    hdrs = ["can_types.dut"],
+    visibility = ["//visibility:public"],
+)
+
+st_binary(
+    name = "can_reader",
+    program = "main_program.st",
+    deps = [":can_reader_lib"],
+)
+
+cc_test(
+    name = "can_reader_test",
+    srcs = ["can_reader_test.cc"],
+    data = [":can_reader"],
+    deps = [
+        "@bazel_tools//tools/cpp/runfiles",
+        "@googletest//:gtest_main",
+    ],
+)

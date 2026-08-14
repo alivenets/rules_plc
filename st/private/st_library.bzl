@@ -59,14 +59,17 @@ def _st_library_impl(ctx):
         args = ctx.actions.args()
         args.add("-c")
         args.add_all(ctx.files.srcs)
-        args.add_all(dep_compile_interfaces, before_each = "-i")
 
-        # Own hdrs (e.g. .dut TYPE definitions) must be visible to plc while
-        # it compiles this library's srcs -- otherwise a src referencing a
-        # type declared in one of the hdrs fails with an "Unknown type"
-        # error. Passed as -i (declaration-only, no object code) rather than
-        # -c.
-        args.add_all(ctx.files.hdrs, before_each = "-i")
+        # Own hdrs (e.g. .dut TYPE definitions) are compiled alongside srcs
+        # rather than merely made visible via -i, so plc emits their
+        # constructors (STRUCT initializers) into this library's object
+        # exactly once. Dependents see those ctors as external references,
+        # resolved at link time by depending on this library. Passing hdrs
+        # only via -i drops the ctors entirely and breaks the link for any
+        # struct-typed field a dependent instantiates.
+        args.add_all(ctx.files.hdrs)
+
+        args.add_all(dep_compile_interfaces, before_each = "-i")
 
         # Add direct-only interface deps as -i inputs (non-transitive)
         if interface_dep_interfaces:

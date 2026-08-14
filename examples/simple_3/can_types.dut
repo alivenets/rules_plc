@@ -1,0 +1,21 @@
+TYPE CAN_MSG_BUFFER :
+STRUCT
+	dwStart : DWORD;
+	byte1 : USINT;
+	byte2 : USINT;
+	byte3 : USINT;
+	byte4 : USINT;
+	byte5 : USINT;
+	byte6 : USINT;
+	byte7 : USINT;
+	byte8 : USINT;
+	bEnd : BYTE;
+END_STRUCT;
+END_TYPE
+
+
+TYPE CAN_MSG :
+STRUCT
+   value_byte: USINT;
+END_STRUCT;
+END_TYPE
