@@ -1,5 +1,5 @@
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
-load("@rules_plc//st:defs.bzl", "st_library", "st_library_stub")
+load("@rules_plc//st:defs.bzl", "st_binary", "st_library", "st_library_stub")
 
 st_library(
     name = "fast_math",
@@ -12,10 +12,19 @@ st_library_stub(
     library = ":fast_math",
 )
 
+st_binary(
+    name = "fast_math_bin",
+    cc_deps = [":fast_math_stubs"],
+    program = "fast_math_bin.st",
+    visibility = ["//visibility:public"],
+    deps = [":fast_math"],
+)
+
 cc_test(
     name = "fast_math_test",
     srcs = ["fast_math_test.cc"],
     deps = [
+        ":fast_math",
         ":fast_math_stubs",
         "@googletest//:gtest_main",
     ],

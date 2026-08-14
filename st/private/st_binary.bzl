@@ -41,7 +41,37 @@ def _compile(ctx, toolchain, out_suffix, sources, dep_interfaces, extra_interfac
     )
     return out
 
-def _link(ctx, toolchain, own_objects):
+def _collect_cc_link_files(cc_infos):
+    """Flattens `cc_infos` into the object Files to pass to plc's link step.
+
+    plc's linker driver only understands raw object files, not .a archives,
+    so this pulls each LibraryToLink's constituent objects rather than its
+    archive. PIC objects preferred (this binary is linked with --fpic, and
+    mixing non-PIC into that triggers R_X86_64_32 relocation errors under
+    ld.lld); falls back to non-PIC when a library only has that.
+
+    Also pulls in an archive's objects unconditionally (no --whole-archive/
+    --as-needed selection here) -- for weak-stub .a's, this is exactly the
+    intent, and for ordinary cc_library deps it matches how ST's own
+    st_library objects are already linked.
+    """
+    files = []
+    for cc_info in cc_infos:
+        for linker_input in cc_info.linking_context.linker_inputs.to_list():
+            for lib in linker_input.libraries:
+                if lib.pic_objects:
+                    files.extend(lib.pic_objects)
+                elif lib.objects:
+                    files.extend(lib.objects)
+                elif lib.pic_static_library:
+                    files.append(lib.pic_static_library)
+                elif lib.static_library:
+                    files.append(lib.static_library)
+                elif lib.dynamic_library:
+                    files.append(lib.dynamic_library)
+    return files
+
+def _link(ctx, toolchain, own_objects, cc_link_files):
     dep_info = merge_st_infos([dep[StInfo] for dep in ctx.attr.deps])
     dep_objects = dep_info.linking_context.objects
 
@@ -50,6 +80,7 @@ def _link(ctx, toolchain, own_objects):
     args = ctx.actions.args()
     args.add_all(own_objects)
     args.add_all(dep_objects)
+    args.add_all(cc_link_files)
     args.add("-o", out)
     args.add("--linker", toolchain.linker.path)
     args.add("--fuse-ld", "lld")
@@ -58,7 +89,7 @@ def _link(ctx, toolchain, own_objects):
         executable = toolchain.compiler,
         arguments = [args],
         inputs = depset(
-            own_objects + [toolchain.linker] + toolchain.compiler_runtime_files,
+            own_objects + cc_link_files + [toolchain.linker] + toolchain.compiler_runtime_files,
             transitive = [dep_objects],
         ),
         outputs = [out],
@@ -144,7 +175,10 @@ touch {marker}
         # FUNCTION main, that's this binary's entry point.
         own_objects = [pou_object]
 
-    out = _link(ctx, toolchain, own_objects)
+    cc_dep_cc_infos = [dep[CcInfo] for dep in ctx.attr.cc_deps]
+    cc_link_files = _collect_cc_link_files(cc_dep_cc_infos)
+
+    out = _link(ctx, toolchain, own_objects, cc_link_files)
 
     # Export a plain CcInfo constructed from StInfo linking contexts of
     # `deps`, so linking a `st_binary` against `st_library` uses the ST
@@ -191,7 +225,7 @@ touch {marker}
     else:
         own_cc_infos = dep_cc_infos
 
-    exported_cc_info = cc_common.merge_cc_infos(cc_infos = own_cc_infos)
+    exported_cc_info = cc_common.merge_cc_infos(cc_infos = own_cc_infos + cc_dep_cc_infos)
 
     return [
         DefaultInfo(
@@ -215,6 +249,10 @@ _COMMON_ATTRS = {
     "deps": attr.label_list(
         providers = [StInfo],
         doc = "st_library targets this binary's program calls into.",
+    ),
+    "cc_deps": attr.label_list(
+        providers = [CcInfo],
+        doc = "Native (C/C++) libraries linked into this binary -- e.g. an st_library_stub, or an ordinary cc_library implementing {external} POUs declared in a dep's srcs/hdrs. Their libraries/objects are passed straight to plc's link step; their compilation context is not consumed (ST sources don't #include C headers).",
     ),
     "_cc_toolchain": attr.label(default = Label("@rules_cc//cc:current_cc_toolchain")),
 }
@@ -274,7 +312,7 @@ _st_binary_provider_fusion = rule(
     doc = "Combines an st_binary with its generated headers (if any) into one target, forwarding the binary's own DefaultInfo (so the fused target stays runnable/testable) and OutputGroupInfo (so its _validation actions -- e.g. StValidateProgram -- still run). Internal -- use the public st_binary macro below.",
 )
 
-def st_binary(name, srcs = [], hdrs = [], deps = [], program = None, visibility = None, **kwargs):
+def st_binary(name, srcs = [], hdrs = [], deps = [], cc_deps = [], program = None, visibility = None, **kwargs):
     """Compiles a PROGRAM (plus any st_library deps) into a native executable, auto-generating the FUNCTION main entry point that runs it.
 
     If srcs/hdrs are given, also generates and exports plc's C headers for
@@ -290,6 +328,9 @@ def st_binary(name, srcs = [], hdrs = [], deps = [], program = None, visibility 
             to this binary, with no implementation of their own. Compiled
             alongside program.
         deps: st_library targets this binary's program calls into.
+        cc_deps: Native (C/C++) libraries linked into this binary -- e.g. an
+            st_library_stub, or an ordinary cc_library implementing
+            {external} POUs declared in a dep's srcs/hdrs.
         program: The .st file declaring the PROGRAM that is this binary's
             cyclic entry point; the PROGRAM's name must match the file's
             basename. st_binary generates and links in the FUNCTION main
@@ -307,6 +348,7 @@ def st_binary(name, srcs = [], hdrs = [], deps = [], program = None, visibility 
         srcs = srcs,
         hdrs = hdrs,
         deps = deps,
+        cc_deps = cc_deps,
         program = program,
         visibility = ["//visibility:private"],
         **kwargs

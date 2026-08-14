@@ -49,6 +49,12 @@ def _st_library_impl(ctx):
     args.add_all(ctx.files.srcs)
     args.add_all(dep_compile_interfaces, before_each = "-i")
 
+    # Own hdrs (e.g. .dut TYPE definitions) must be visible to plc while it
+    # compiles this library's srcs -- otherwise a src referencing a type
+    # declared in one of the hdrs fails with an "Unknown type" error. Passed
+    # as -i (declaration-only, no object code) rather than -c.
+    args.add_all(ctx.files.hdrs, before_each = "-i")
+
     # Add direct-only interface deps as -i inputs (non-transitive)
     if interface_dep_interfaces:
         args.add_all(interface_dep_interfaces, before_each = "-i")
