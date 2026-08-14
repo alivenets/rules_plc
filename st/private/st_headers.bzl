@@ -92,9 +92,8 @@ st_library_headers_gen = rule(
     implementation = _st_library_headers_gen_impl,
     attrs = {
         "srcs": attr.label_list(
-            mandatory = True,
             allow_files = [".st", ".dut"],
-            doc = "ST source files to generate C headers for.",
+            doc = "ST source files to generate C headers for. Optional -- omit for a headers-only library, in which case hdrs alone are used.",
         ),
         "hdrs": attr.label_list(
             allow_files = [".st", ".dut"],

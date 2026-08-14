@@ -17,13 +17,20 @@ def _st_library_provides_st_info_test(ctx):
     interfaces = info.compilation_context.interfaces.to_list()
     asserts.true(
         env,
-        any([f.basename == "point_lib.st" for f in interfaces]),
-        "compilation_context.interfaces should include the library's own srcs",
-    )
-    asserts.true(
-        env,
         any([f.basename == "point_types.dut" for f in interfaces]),
         "compilation_context.interfaces should include the library's own hdrs",
+    )
+    asserts.false(
+        env,
+        any([f.basename == "point_lib.st" for f in interfaces]),
+        "compilation_context.interfaces must not re-export srcs (implementation) to dependents",
+    )
+
+    sources = info.compilation_context.sources.to_list()
+    asserts.true(
+        env,
+        any([f.basename == "point_lib.st" for f in sources]),
+        "compilation_context.sources should include the library's own srcs",
     )
 
     objects = info.linking_context.objects.to_list()

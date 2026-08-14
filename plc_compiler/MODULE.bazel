@@ -83,6 +83,7 @@ http_archive(
         "//third_party/rusty:nested_function_block_type_name_c.patch",
         "//third_party/rusty:nested_function_block_type_name_pipelines.patch",
         "//third_party/rusty:extern_hw_globals_for_included_modules.patch",
+        "//third_party/rusty:topological_struct_order.patch",
     ],
     strip_prefix = "rusty-13500a827ba5ddb968225420aa9bb48a89547194",
     url = "https://github.com/PLC-lang/rusty/archive/13500a827ba5ddb968225420aa9bb48a89547194.zip",

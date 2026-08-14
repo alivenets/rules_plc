@@ -1,0 +1,54 @@
+Forward-declare all plc-emitted struct typedefs in dependencies.plc.h.
+
+plc emits each POU's C header as `typedef struct { ... } NAME;` (anonymous
+struct with typedef alias) and orders emissions by source order in the .st
+file rather than by dependency. When one struct references a later-defined
+one via a pointer -- e.g. `GEN_CRC16_type` in mGENx.h has field
+`GEN_CRC16_TABLE_type* CRC16_TABLE;` while `GEN_CRC16_TABLE_type` is defined
+further down -- the C compile fails with "unknown type name". Same hazard
+applies across modules (mCOPx.h references CAN_CH_INIT_type from mCANx.h,
+etc.).
+
+Fix in two coordinated changes, both driven by generate_headers.py:
+
+1. After `plc --generate-headers`, rewrite each emitted `<name>.h` to give
+   every anonymous struct typedef a matching struct tag:
+       typedef struct { ... } NAME;
+     becomes
+       typedef struct NAME { ... } NAME;
+
+2. Collect every such NAME across the headers dir and render them into
+   dependencies.plc.h as forward typedef declarations:
+       typedef struct NAME NAME;
+   Each generated header unconditionally #includes <dependencies.plc.h>
+   as its first include, so any pointer to NAME is valid before NAME's
+   struct body is seen.
+
+C11 allows redundant typedef declarations that refer to the same type
+(section 6.7 p3), so the forward `typedef struct NAME NAME;` and the later
+`typedef struct NAME { ... } NAME;` in the same translation unit are both
+well-formed.
+
+The plc-emitted header itself has no unions or enums; only struct typedefs,
+one per POU, without nesting. A simple non-greedy `\{[^{}]*\}` regex is
+sufficient to locate each block.
+--- a/st/private/dependencies.plc.h.jinja
++++ b/st/private/dependencies.plc.h.jinja
+@@ -80,6 +80,17 @@
+     double lreal_;
+ #endif
+ } AnyNumValue;
++{% if forward_declarations %}
++// Forward typedefs for every POU struct in this library, so any header's
++// pointer to a struct defined further down (in the same file or in another
++// module's file) resolves regardless of emission order. Paired with the tag
++// injection in generate_headers.py, which rewrites the eventual struct body
++// to `typedef struct NAME { ... } NAME;` -- a redundant typedef of NAME to
++// the same `struct NAME` type, allowed by C11 6.7.p3.
++{% for name in forward_declarations -%}
++typedef struct {{ name }} {{ name }};
++{% endfor -%}
++{% endif -%}
+ {% if auto_includes %}
+ // Other (declaration-only) headers generated alongside this one.
+ {% for name in auto_includes -%}

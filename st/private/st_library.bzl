@@ -7,6 +7,9 @@ load("//st:private/st_headers.bzl", "st_library_headers_gen")
 load("//st:providers.bzl", "StHeadersInfo", "StInfo", "create_st_compilation_context", "create_st_linking_context", "merge_st_infos")
 
 def _st_library_impl(ctx):
+    if not ctx.files.srcs and not ctx.files.hdrs:
+        fail("%s: st_library must have at least one of srcs or hdrs" % ctx.label)
+
     toolchain = ctx.toolchains["//st:toolchain_type"]
     compiler = toolchain.compiler
 
@@ -42,32 +45,44 @@ def _st_library_impl(ctx):
     # onward -- only own_interfaces (hdrs-only) is.
     dep_compile_interfaces = depset(transitive = [dep_interfaces, dep_info.compilation_context.sources])
 
-    out = ctx.actions.declare_file(ctx.label.name + ".o")
+    # hdrs-only libraries (no srcs) have no code to compile -- e.g. a
+    # library of {external} FUNCTION declarations or .dut TYPE definitions,
+    # to be linked in stubbed via st_library_stub -- so skip the StCompile
+    # action entirely and produce no object. StInfo still carries the hdrs
+    # as compile-time interfaces (own_interfaces above), and CcInfo below
+    # just forwards deps'.
+    own_objects = []
+    default_files = []
+    if ctx.files.srcs:
+        out = ctx.actions.declare_file(ctx.label.name + ".o")
 
-    args = ctx.actions.args()
-    args.add("-c")
-    args.add_all(ctx.files.srcs)
-    args.add_all(dep_compile_interfaces, before_each = "-i")
+        args = ctx.actions.args()
+        args.add("-c")
+        args.add_all(ctx.files.srcs)
+        args.add_all(dep_compile_interfaces, before_each = "-i")
 
-    # Own hdrs (e.g. .dut TYPE definitions) must be visible to plc while it
-    # compiles this library's srcs -- otherwise a src referencing a type
-    # declared in one of the hdrs fails with an "Unknown type" error. Passed
-    # as -i (declaration-only, no object code) rather than -c.
-    args.add_all(ctx.files.hdrs, before_each = "-i")
+        # Own hdrs (e.g. .dut TYPE definitions) must be visible to plc while
+        # it compiles this library's srcs -- otherwise a src referencing a
+        # type declared in one of the hdrs fails with an "Unknown type"
+        # error. Passed as -i (declaration-only, no object code) rather than
+        # -c.
+        args.add_all(ctx.files.hdrs, before_each = "-i")
 
-    # Add direct-only interface deps as -i inputs (non-transitive)
-    if interface_dep_interfaces:
-        args.add_all(interface_dep_interfaces, before_each = "-i")
-    args.add("-o", out)
+        # Add direct-only interface deps as -i inputs (non-transitive)
+        if interface_dep_interfaces:
+            args.add_all(interface_dep_interfaces, before_each = "-i")
+        args.add("-o", out)
 
-    ctx.actions.run(
-        executable = compiler,
-        arguments = [args],
-        inputs = depset(ctx.files.srcs + toolchain.compiler_runtime_files, transitive = [own_interfaces, dep_compile_interfaces, interface_dep_interfaces]),
-        outputs = [out],
-        mnemonic = "StCompile",
-        progress_message = "Compiling ST library %{label}",
-    )
+        ctx.actions.run(
+            executable = compiler,
+            arguments = [args],
+            inputs = depset(ctx.files.srcs + toolchain.compiler_runtime_files, transitive = [own_interfaces, dep_compile_interfaces, interface_dep_interfaces]),
+            outputs = [out],
+            mnemonic = "StCompile",
+            progress_message = "Compiling ST library %{label}",
+        )
+        own_objects = [out]
+        default_files = [out]
 
     # Also export a plain CcInfo, wrapping the compiled object as a linkable
     # library, so non-ST rules (e.g. rust_test's deps) can depend on an
@@ -79,34 +94,35 @@ def _st_library_impl(ctx):
         requested_features = ctx.features,
         unsupported_features = ctx.disabled_features,
     )
-    own_linking_context, _ = cc_common.create_linking_context_from_compilation_outputs(
-        actions = ctx.actions,
-        name = ctx.label.name,
-        feature_configuration = feature_configuration,
-        cc_toolchain = cc_toolchain,
-        compilation_outputs = cc_common.create_compilation_outputs(
-            objects = depset([out]),
-            pic_objects = depset([out]),
-        ),
-        disallow_dynamic_library = True,
-    )
+    own_cc_infos = []
+    if own_objects:
+        own_linking_context, _ = cc_common.create_linking_context_from_compilation_outputs(
+            actions = ctx.actions,
+            name = ctx.label.name,
+            feature_configuration = feature_configuration,
+            cc_toolchain = cc_toolchain,
+            compilation_outputs = cc_common.create_compilation_outputs(
+                objects = depset(own_objects),
+                pic_objects = depset(own_objects),
+            ),
+            disallow_dynamic_library = True,
+        )
+        own_cc_infos.append(CcInfo(linking_context = own_linking_context))
 
     # Does not include plc's generated C headers -- this compile-only rule is
     # wrapped, along with st_library_headers_gen, by the public st_library
     # macro below, which bundles both into one target.
-    exported_cc_info = cc_common.merge_cc_infos(cc_infos = [
-        CcInfo(linking_context = own_linking_context),
-    ] + [dep[CcInfo] for dep in ctx.attr.deps])
+    exported_cc_info = cc_common.merge_cc_infos(cc_infos = own_cc_infos + [dep[CcInfo] for dep in ctx.attr.deps])
 
     return [
-        DefaultInfo(files = depset([out])),
+        DefaultInfo(files = depset(default_files)),
         StInfo(
             compilation_context = create_st_compilation_context(
                 interfaces = own_interfaces,
                 sources = own_sources,
             ),
             linking_context = create_st_linking_context(
-                objects = depset([out], transitive = [dep_objects]),
+                objects = depset(own_objects, transitive = [dep_objects]),
             ),
         ),
         exported_cc_info,
@@ -116,9 +132,8 @@ _st_library = rule(
     implementation = _st_library_impl,
     attrs = {
         "srcs": attr.label_list(
-            mandatory = True,
             allow_files = [".st"],
-            doc = "ST source files implementing this library. Also serves as the interface exposed to targets depending on this library.",
+            doc = "ST source files implementing this library. Also serves as the interface exposed to targets depending on this library. Optional -- omit for a headers-only library (hdrs only, no implementation of its own).",
         ),
         "hdrs": attr.label_list(
             allow_files = [".dut", ".st"],
@@ -158,7 +173,7 @@ _st_provider_fusion = rule(
     doc = "Combines a compiled st_library with its generated headers into one target. Internal -- use the public st_library macro below.",
 )
 
-def st_library(name, srcs, hdrs = [], deps = [], interface_deps = [], visibility = None, **kwargs):
+def st_library(name, srcs = [], hdrs = [], deps = [], interface_deps = [], visibility = None, **kwargs):
     """Compiles ST sources into a relocatable object, for linking into an st_binary/st_test or another st_library.
 
     Also generates and exports plc's C headers for srcs/hdrs, so a
@@ -166,10 +181,16 @@ def st_library(name, srcs, hdrs = [], deps = [], interface_deps = [], visibility
     plc-generated .h directly instead of hand-declaring extern "C"
     signatures.
 
+    A headers-only st_library (hdrs only, no srcs) skips compilation and
+    produces no object -- useful for a bundle of {external} FUNCTION
+    declarations or .dut TYPE definitions consumers link against
+    (typically via st_library_stub).
+
     Args:
         name: Name of this library.
         srcs: ST source files implementing this library. Also serves as the
             interface exposed to targets depending on this library.
+            Optional -- omit for a headers-only library.
         hdrs: Full type/declaration files (e.g. .dut TYPE definitions) with
             no implementation of their own. Compiled alongside srcs and
             re-exported to dependents, who see them via -i only (never
@@ -185,6 +206,8 @@ def st_library(name, srcs, hdrs = [], deps = [], interface_deps = [], visibility
             headers-only targets stay private regardless).
         **kwargs: Forwarded to the underlying compile-only rule.
     """
+    if not srcs and not hdrs:
+        fail("st_library %s: must have at least one of srcs or hdrs" % name)
     compile_name = name + "_lib"
     _st_library(
         name = compile_name,
