@@ -1,0 +1,61 @@
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("@rules_plc//st:defs.bzl", "st_binary", "st_library", "st_library_stub")
+
+# Three libraries in a dep chain: link_types <- eth <- net. Each downstream
+# library uses link_types' `link_handle` struct by-value in a VAR_IN_OUT,
+# so its generated `dependencies.plc.h` must relative-include link_types'
+# own generated header (directly for eth, transitively for net).
+st_library(
+    name = "link_types",
+    srcs = ["link_types.st"],
+)
+
+st_library(
+    name = "eth",
+    srcs = ["eth.st"],
+    deps = [":link_types"],
+)
+
+st_library(
+    name = "net",
+    srcs = ["net.st"],
+    deps = [":eth"],
+)
+
+# Source-less facade: no srcs, just re-exports all three libraries as a
+# single dependency. Consumers pull one target instead of enumerating the
+# whole chain.
+st_library(
+    name = "all_libs",
+    deps = [
+        ":eth",
+        ":link_types",
+        ":net",
+    ],
+)
+
+# A single stub target built from the facade. rules_plc walks the facade's
+# transitive dep chain and emits one weak-symbol .c per underlying library,
+# so linking `all_stubs` alone satisfies every `{external}` symbol in the
+# chain -- no per-library stub target enumeration needed at the call site.
+st_library_stub(
+    name = "all_stubs",
+    library = ":all_libs",
+)
+
+st_binary(
+    name = "app_bin",
+    cc_deps = [":all_stubs"],
+    program = "app_bin.st",
+    deps = [":all_libs"],
+)
+
+cc_test(
+    name = "app_test",
+    srcs = ["app_test.cc"],
+    deps = [
+        ":all_libs",
+        ":all_stubs",
+        "@googletest//:gtest_main",
+    ],
+)

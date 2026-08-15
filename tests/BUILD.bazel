@@ -73,6 +73,16 @@ cc_test(
     ],
 )
 
+# Façade st_library: no srcs of its own, just re-exports deps' StInfo/CcInfo
+# under one name. Used by the corresponding analysis test in rules_test.bzl.
+st_library(
+    name = "leaf_middle_facade",
+    deps = [
+        ":leaf",
+        ":middle",
+    ],
+)
+
 # A minimal st_binary purely to exercise st_binary's own StLink action/flags
 # (see rules_test.bzl) -- unrelated to the st_library CcInfo-export coverage
 # above, which now uses cc_test instead.

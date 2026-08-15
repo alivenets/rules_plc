@@ -53,6 +53,30 @@ def _st_library_merges_transitive_deps_test(ctx):
 
 st_library_merges_transitive_deps_test = analysistest.make(_st_library_merges_transitive_deps_test)
 
+def _st_library_facade_test(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+
+    asserts.true(env, StInfo in target, "façade st_library must still provide StInfo")
+    info = target[StInfo]
+
+    # A srcs-empty façade must register no StCompile action of its own.
+    compile_actions = [a for a in analysistest.target_actions(env) if a.mnemonic == "StCompile"]
+    asserts.equals(env, 0, len(compile_actions), "façade st_library must register no StCompile action")
+
+    # StInfo re-exports every dep's sources transitively.
+    sources = [f.basename for f in info.compilation_context.sources.to_list()]
+    asserts.true(env, "leaf.st" in sources, "façade should re-export leaf.st transitively")
+    asserts.true(env, "middle.st" in sources, "façade should re-export middle.st transitively")
+
+    # And every dep's linkable objects.
+    objects = info.linking_context.objects.to_list()
+    asserts.equals(env, 2, len(objects), "façade should re-export exactly its two deps' objects (leaf, middle)")
+
+    return analysistest.end(env)
+
+st_library_facade_test = analysistest.make(_st_library_facade_test)
+
 def _st_binary_links_with_fuse_ld_lld_test(ctx):
     env = analysistest.begin(ctx)
 
@@ -110,6 +134,10 @@ def rules_test_suite(name):
         name = "st_library_merges_transitive_deps_test",
         target_under_test = "//:top_lib",
     )
+    st_library_facade_test(
+        name = "st_library_facade_test",
+        target_under_test = "//:leaf_middle_facade_lib",
+    )
     st_binary_links_with_fuse_ld_lld_test(
         name = "st_binary_links_with_fuse_ld_lld_test",
         target_under_test = "//:trivial_binary_bin",
@@ -124,6 +152,7 @@ def rules_test_suite(name):
         tests = [
             ":st_library_provides_st_info_test",
             ":st_library_merges_transitive_deps_test",
+            ":st_library_facade_test",
             ":st_binary_links_with_fuse_ld_lld_test",
             ":st_binary_without_program_skips_wrapper_test",
         ],

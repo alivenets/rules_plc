@@ -38,11 +38,18 @@ StHeadersInfo = provider(
     },
 )
 
-StLibraryStubSourceInfo = provider(
-    doc = "Set by the private rule generating a target's __attribute__((weak)) stub .c source for its own {external} FUNCTION/FUNCTION_BLOCK declarations (see st/private/library_stubs.bzl). A plain rule reading `library`'s StHeadersInfo -- not an aspect -- so it only ever needs the plc toolchain, never a C++ one (kept separate from the rule that compiles stub_c, which needs a C++ toolchain but not plc's).",
+StTransitiveHeadersInfo = provider(
+    doc = "Set on every st_library/st_binary: the union of every underlying library's own StHeadersInfo bundle across the transitive closure. Read by _st_library_stub_source (see st/private/library_stubs.bzl) so a façade st_library (srcs empty, deps only) -- which has no StHeadersInfo of its own -- still fans out weak-stub generation over every underlying leaf library.",
     fields = {
-        "stub_c": "The generated stub .c File, or None if the target declared no {external} POUs (or doesn't carry StHeadersInfo at all).",
-        "headers_dir": "The same headers_dir stub_c was generated from (for compiling stub_c against it), or None if stub_c is None.",
+        "bundles": "depset of struct(headers_dir=File, sources=depset<File>), one entry per underlying library that generated its own headers.",
+    },
+)
+
+StLibraryStubSourceInfo = provider(
+    doc = "Set by the private rule generating a target's __attribute__((weak)) stub .c source(s) for its own {external} FUNCTION/FUNCTION_BLOCK declarations (see st/private/library_stubs.bzl). A plain rule reading `library`'s StTransitiveHeadersInfo -- not an aspect -- so it only ever needs the plc toolchain, never a C++ one (kept separate from the rule that compiles the stub sources, which needs a C++ toolchain but not plc's).",
+    fields = {
+        "stub_cs": "List of generated stub .c Files, one per underlying library in `library`'s transitive closure that declared at least one {external} POU. Empty when nothing to stub.",
+        "headers_dirs": "List of headers_dir Files, matching stub_cs positionally, for compiling each stub .c against the exact headers it was generated from.",
     },
 )
 

@@ -24,10 +24,19 @@
 // the 64-bit members (LINT/ULINT/LWORD/LREAL); omit it to build against
 // targets without 64-bit support.
 
-#ifndef DEPENDENCIES_PLC_H_
-#define DEPENDENCIES_PLC_H_
+#pragma once
 
 #include <stdint.h>
+
+// Every library's dep.plc.h renders the same ANY_* union declarations, so
+// a translation unit that pulls in more than one library's dep.plc.h (via
+// the relative-path dep-include chain generate_headers renders below)
+// would otherwise see duplicate typedef definitions. Guarded with a
+// content-based `#ifndef` (not `#pragma once`, which is keyed on file
+// identity and so doesn't dedupe same-content-different-path copies) so
+// the ANY_* unions are declared exactly once per translation unit.
+#ifndef RULES_PLC_ANY_UNIONS_DECLARED_
+#define RULES_PLC_ANY_UNIONS_DECLARED_
 
 typedef union {
     int8_t sint_;
@@ -80,6 +89,8 @@ typedef union {
     double lreal_;
 #endif
 } AnyNumValue;
+
+#endif /* RULES_PLC_ANY_UNIONS_DECLARED_ */
 {% if forward_declarations %}
 // Forward typedefs for every POU struct in this library, so any header's
 // pointer to a struct defined further down (in the same file or in another
@@ -97,4 +108,13 @@ typedef struct {{ name }} {{ name }};
 #include "{{ name }}.h"
 {% endfor -%}
 {% endif -%}
-#endif /* !DEPENDENCIES_PLC_H_ */
+{% if dep_auto_includes %}
+// Deps' headers, transitively re-exported via a relative path from this
+// file's directory to the dep library's own headers_dir -- so the C
+// compiler resolves each to the authoritative dep-generated header,
+// unambiguously (any same-basename copy plc may have also emitted into
+// this library's own headers_dir is not on the resolution path).
+{% for name in dep_auto_includes -%}
+#include "{{ name }}.h"
+{% endfor -%}
+{% endif -%}

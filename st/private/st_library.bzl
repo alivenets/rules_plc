@@ -4,11 +4,11 @@ load("@rules_cc//cc:find_cc_toolchain.bzl", "find_cc_toolchain", "use_cc_toolcha
 load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 load("//st:private/st_headers.bzl", "st_library_headers_gen")
-load("//st:providers.bzl", "StHeadersInfo", "StInfo", "create_st_compilation_context", "create_st_linking_context", "merge_st_infos")
+load("//st:providers.bzl", "StHeadersInfo", "StInfo", "StTransitiveHeadersInfo", "create_st_compilation_context", "create_st_linking_context", "merge_st_infos")
 
 def _st_library_impl(ctx):
-    if not ctx.files.srcs:
-        fail("%s: st_library must have at least one src" % ctx.label)
+    if not ctx.files.srcs and not ctx.attr.deps:
+        fail("%s: st_library must have at least one src or dep" % ctx.label)
 
     toolchain = ctx.toolchains["//st:toolchain_type"]
     compiler = toolchain.compiler
@@ -23,26 +23,44 @@ def _st_library_impl(ctx):
     # plc via `-i` and resolve any cross-library POU/TYPE reference.
     own_sources = depset(ctx.files.srcs, transitive = [dep_sources])
 
-    out = ctx.actions.declare_file(ctx.label.name + ".o")
+    # A façade st_library (srcs empty, deps non-empty) skips StCompile
+    # entirely: it produces no object of its own and just re-exports its
+    # deps' compilation and linking contexts. Useful for grouping several
+    # underlying libraries behind one name without adding any code.
+    own_objects = []
+    default_files = []
+    if ctx.files.srcs:
+        out = ctx.actions.declare_file(ctx.label.name + ".o")
 
-    args = ctx.actions.args()
-    args.add("-c")
-    args.add_all(ctx.files.srcs)
-    args.add_all(dep_sources, before_each = "-i")
+        args = ctx.actions.args()
+        args.add("-c")
+        args.add_all(ctx.files.srcs)
+        args.add_all(dep_sources, before_each = "-i")
 
-    args.add("-o", out)
-    args.add("--generate-external-constructors")
+        args.add("-o", out)
 
-    ctx.actions.run(
-        executable = compiler,
-        arguments = [args],
-        inputs = depset(ctx.files.srcs + toolchain.compiler_runtime_files, transitive = [dep_sources]),
-        outputs = [out],
-        mnemonic = "StCompile",
-        progress_message = "Compiling ST library %{label}",
-    )
-    own_objects = [out]
-    default_files = [out]
+        # `--generate-external-constructors` emits a strong ctor (plus the
+        # matching vtable ctor / instance) for every {external} FB
+        # declared in `-c` sources. Passed unconditionally, every library
+        # in a chain that redeclares the same {external} FB emits its
+        # own strong ctor and the final link fails with "duplicate
+        # symbol". Restricted here to leaf libraries (no ST deps): a leaf
+        # is the topmost declarer of its own {external} FBs, so it owns
+        # their ctors; any non-leaf inherits them via its deps' linking
+        # context and just emits an undefined reference.
+        if not ctx.attr.deps:
+            args.add("--generate-external-constructors")
+
+        ctx.actions.run(
+            executable = compiler,
+            arguments = [args],
+            inputs = depset(ctx.files.srcs + toolchain.compiler_runtime_files, transitive = [dep_sources]),
+            outputs = [out],
+            mnemonic = "StCompile",
+            progress_message = "Compiling ST library %{label}",
+        )
+        own_objects = [out]
+        default_files = [out]
 
     # Also export a plain CcInfo, wrapping the compiled object as a linkable
     # library, so non-ST rules (e.g. rust_test's deps) can depend on an
@@ -54,22 +72,35 @@ def _st_library_impl(ctx):
         requested_features = ctx.features,
         unsupported_features = ctx.disabled_features,
     )
-    own_linking_context, _ = cc_common.create_linking_context_from_compilation_outputs(
-        actions = ctx.actions,
-        name = ctx.label.name,
-        feature_configuration = feature_configuration,
-        cc_toolchain = cc_toolchain,
-        compilation_outputs = cc_common.create_compilation_outputs(
-            objects = depset(own_objects),
-            pic_objects = depset(own_objects),
-        ),
-        disallow_dynamic_library = True,
-    )
+    own_cc_infos = []
+    if own_objects:
+        own_linking_context, _ = cc_common.create_linking_context_from_compilation_outputs(
+            actions = ctx.actions,
+            name = ctx.label.name,
+            feature_configuration = feature_configuration,
+            cc_toolchain = cc_toolchain,
+            compilation_outputs = cc_common.create_compilation_outputs(
+                objects = depset(own_objects),
+                pic_objects = depset(own_objects),
+            ),
+            disallow_dynamic_library = True,
+        )
+        own_cc_infos.append(CcInfo(linking_context = own_linking_context))
 
     # Does not include plc's generated C headers -- this compile-only rule is
     # wrapped, along with st_library_headers_gen, by the public st_library
     # macro below, which bundles both into one target.
-    exported_cc_info = cc_common.merge_cc_infos(cc_infos = [CcInfo(linking_context = own_linking_context)] + [dep[CcInfo] for dep in ctx.attr.deps])
+    exported_cc_info = cc_common.merge_cc_infos(cc_infos = own_cc_infos + [dep[CcInfo] for dep in ctx.attr.deps])
+
+    # Union of each dep's headers bundles -- this compile rule doesn't
+    # generate headers of its own (st_library_headers_gen does, and the
+    # fusion rule below adds its bundle on top), so only forward whatever
+    # the deps already contributed.
+    dep_bundles = [
+        dep[StTransitiveHeadersInfo].bundles
+        for dep in ctx.attr.deps
+        if StTransitiveHeadersInfo in dep
+    ]
 
     return [
         DefaultInfo(files = depset(default_files)),
@@ -81,6 +112,7 @@ def _st_library_impl(ctx):
                 objects = depset(own_objects, transitive = [dep_objects]),
             ),
         ),
+        StTransitiveHeadersInfo(bundles = depset(transitive = dep_bundles)),
         exported_cc_info,
     ]
 
@@ -105,20 +137,39 @@ _st_library = rule(
 def _st_provider_fusion_impl(ctx):
     compile_target = ctx.attr.compile
     headers_target = ctx.attr.headers
-    return [
+    providers = [
         compile_target[DefaultInfo],
         compile_target[StInfo],
-        headers_target[StHeadersInfo],
-        cc_common.merge_cc_infos(cc_infos = [compile_target[CcInfo], headers_target[CcInfo]]),
     ]
+
+    # Base is whatever compile_target aggregated from its deps -- add this
+    # library's own headers bundle on top when it has any (non-façade case),
+    # so a consumer's StTransitiveHeadersInfo lists every underlying leaf's
+    # bundle including this one's.
+    dep_bundles = compile_target[StTransitiveHeadersInfo].bundles
+    if headers_target != None:
+        hi = headers_target[StHeadersInfo]
+        own_bundle = struct(headers_dir = hi.headers_dir, sources = hi.sources)
+        providers.append(StTransitiveHeadersInfo(
+            bundles = depset([own_bundle], transitive = [dep_bundles]),
+        ))
+        providers.append(hi)
+        providers.append(cc_common.merge_cc_infos(cc_infos = [compile_target[CcInfo], headers_target[CcInfo]]))
+    else:
+        # A façade st_library (srcs empty, deps only) has nothing of its own
+        # to generate headers for -- forward compile_target's CcInfo and
+        # deps' bundles as-is.
+        providers.append(StTransitiveHeadersInfo(bundles = dep_bundles))
+        providers.append(compile_target[CcInfo])
+    return providers
 
 _st_provider_fusion = rule(
     implementation = _st_provider_fusion_impl,
     attrs = {
-        "compile": attr.label(mandatory = True, providers = [StInfo]),
-        "headers": attr.label(mandatory = True, providers = [StHeadersInfo]),
+        "compile": attr.label(mandatory = True, providers = [StInfo, StTransitiveHeadersInfo]),
+        "headers": attr.label(providers = [StHeadersInfo]),
     },
-    doc = "Combines a compiled st_library with its generated headers into one target. Internal -- use the public st_library macro below.",
+    doc = "Combines a compiled st_library with its generated headers (if any) into one target. Internal -- use the public st_library macro below.",
 )
 
 def st_library(name, srcs = [], deps = [], visibility = None, **kwargs):
@@ -129,19 +180,25 @@ def st_library(name, srcs = [], deps = [], visibility = None, **kwargs):
     plc-generated .h directly instead of hand-declaring extern "C"
     signatures.
 
+    A façade st_library (srcs empty, deps only) skips compilation and
+    header generation: it just re-exports its deps' StInfo/CcInfo under a
+    single name, useful for grouping several underlying libraries behind
+    one target.
+
     Args:
         name: Name of this library.
         srcs: ST source files (.st implementations and .dut TYPE
             declarations) making up this library. Compiled into a single
             object and re-exported to dependents' compiles so they can
-            resolve any POU/TYPE reference into this library.
+            resolve any POU/TYPE reference into this library. Optional
+            when `deps` is non-empty (façade library).
         deps: Other st_library targets this library's implementation calls into.
         visibility: Visibility of this library (the underlying compile-only/
             headers-only targets stay private regardless).
         **kwargs: Forwarded to the underlying compile-only rule.
     """
-    if not srcs:
-        fail("st_library %s: srcs must be non-empty" % name)
+    if not srcs and not deps:
+        fail("st_library %s: must have at least one of srcs or deps" % name)
     compile_name = name + "_lib"
     _st_library(
         name = compile_name,
@@ -150,13 +207,15 @@ def st_library(name, srcs = [], deps = [], visibility = None, **kwargs):
         visibility = ["//visibility:private"],
         **kwargs
     )
-    headers_gen_name = name + "_headers"
-    st_library_headers_gen(
-        name = headers_gen_name,
-        srcs = srcs,
-        deps = deps,
-        visibility = ["//visibility:private"],
-    )
+    headers_gen_name = None
+    if srcs:
+        headers_gen_name = name + "_headers"
+        st_library_headers_gen(
+            name = headers_gen_name,
+            srcs = srcs,
+            deps = deps,
+            visibility = ["//visibility:private"],
+        )
     _st_provider_fusion(
         name = name,
         compile = compile_name,

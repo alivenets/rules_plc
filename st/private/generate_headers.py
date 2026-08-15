@@ -30,7 +30,9 @@ The canonical spelling (the one from the `typedef ... } NAME;` line) is
 chosen and every case-variant reference is rewritten to match it.
 
 Usage: generate_headers.py <headers_dir> <dependencies_plc_h_template>
-    <comma_separated_auto_include_names> <plc_binary> [plc_args...]
+    <comma_separated_auto_include_names>
+    <comma_separated_dep_auto_include_names>
+    <plc_binary> [plc_args...]
 """
 
 import os
@@ -104,8 +106,36 @@ def normalise_field_type_case(header_path, canonical_map):
             f.write(new_text)
 
 
+def rewrite_dependencies_plc_h_include(header_path):
+    """Rewrite plc's emitted `#include <dependencies.plc.h>` (angle-bracket
+    form) to `#include "dependencies.plc.h"` (quoted form) so the C
+    compiler resolves it via same-directory search first -- otherwise a
+    dependent library's compile with only its own headers_dir on
+    `-isystem` would resolve every transitively-included <dependencies.plc.h>
+    to that same one file, guarding out every dep library's own dep.plc.h
+    and dropping the dep-relative `#include "..."` chain the dep's
+    dep.plc.h would otherwise pull in.
+    FIXME(alivenets): patch plc compiler source code
+    """
+    with open(header_path) as f:
+        text = f.read()
+    new_text = text.replace(
+        "#include <dependencies.plc.h>",
+        '#include "dependencies.plc.h"',
+    )
+    if new_text != text:
+        with open(header_path, "w") as f:
+            f.write(new_text)
+
+
 def main():
-    headers_dir, template_path, auto_include_names, *plc_command = sys.argv[1:]
+    (
+        headers_dir,
+        template_path,
+        auto_include_names,
+        dep_auto_include_names,
+        *plc_command,
+    ) = sys.argv[1:]
 
     subprocess.run(plc_command, check=True)
 
@@ -121,15 +151,20 @@ def main():
     canonical_map = {name.lower(): name for name in forward_declarations}
     for path in header_paths:
         normalise_field_type_case(path, canonical_map)
+        rewrite_dependencies_plc_h_include(path)
 
     with open(template_path) as f:
         template = jinja2.Template(f.read(), keep_trailing_newline=True)
 
     auto_includes = auto_include_names.split(",") if auto_include_names else []
+    dep_auto_includes = (
+        dep_auto_include_names.split(",") if dep_auto_include_names else []
+    )
     with open(f"{headers_dir}/dependencies.plc.h", "w") as f:
         f.write(
             template.render(
                 auto_includes=auto_includes,
+                dep_auto_includes=dep_auto_includes,
                 forward_declarations=forward_declarations,
             )
         )
