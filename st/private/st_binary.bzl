@@ -175,6 +175,17 @@ def _st_binary_impl(ctx):
         # entry-point wrapper below can be generated without parsing the file.
         program_name = ctx.file.program.basename.removesuffix(".st")
 
+        # A PROGRAM named `main` would collide with the FUNCTION main
+        # wrapper this rule generates below -- the wrapper declares
+        # `program_instance : {program_name}` inside a FUNCTION also named
+        # `main`, so `program_name == "main"` produces either a
+        # duplicate-symbol link error or a self-referential type reference
+        # depending on how plc resolves the name. Reject it up front with
+        # a message that explains the collision rather than letting plc's
+        # diagnostic bubble up.
+        if program_name == "main":
+            fail("%s: PROGRAM must not be named 'main' (collides with generated FUNCTION main wrapper)" % ctx.label)
+
         marker = ctx.actions.declare_file(ctx.label.name + "_program_check.marker")
         ctx.actions.run_shell(
             outputs = [marker],
@@ -270,19 +281,22 @@ touch {marker}
 
     # Also expose an StInfo, mirroring st_library, so an st_binary can
     # feed another st_binary/st_library's `deps` -- carrying its own
-    # non-program srcs (which double as their interface, same as
+    # srcs and program (which double as their interface, same as
     # st_library) and its own compiled POU object plus every dep's,
     # minus the entry-point wrapper (which defines `main` and must not
     # leak into a downstream link).
     #
     # The two source buckets stay separate: `sources` holds this
-    # binary's own non-program srcs plus regular deps' owned sources
-    # (shippable to a remote plc), and `interface_sources` holds
-    # everything demoted via any interface_deps chain (vendor
+    # binary's own srcs plus its program plus regular deps' owned
+    # sources (shippable to a remote plc), and `interface_sources`
+    # holds everything demoted via any interface_deps chain (vendor
     # interfaces).
+    own_st_sources = list(ctx.files.srcs)
+    if ctx.file.program != None:
+        own_st_sources.append(ctx.file.program)
     st_info = StInfo(
         compilation_context = create_st_compilation_context(
-            sources = depset(ctx.files.srcs, transitive = [dep_owned_sources]),
+            sources = depset(own_st_sources, transitive = [dep_owned_sources]),
             interface_sources = interface_dep_sources_bucket,
         ),
         linking_context = create_st_linking_context(
