@@ -22,6 +22,7 @@ _st_provider_fusion (C++ toolchain, no plc) already avoid by staying
 separate rules.
 """
 
+load("@bazel_skylib//lib:paths.bzl", "paths")
 load("@rules_cc//cc:find_cc_toolchain.bzl", "find_cc_toolchain", "use_cc_toolchain")
 load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
@@ -33,16 +34,24 @@ def _st_library_stub_source_impl(ctx):
     # StTransitiveHeadersInfo or an empty bundles depset -- either way
     # there's nothing to stub.
     if StTransitiveHeadersInfo not in ctx.attr.library:
-        return [StLibraryStubSourceInfo(stub_cs = [], headers_dirs = [])]
+        return [StLibraryStubSourceInfo(stub_cs = [], headers_dirs = [], shim_headers = [], shim_root = "")]
 
     bundles = ctx.attr.library[StTransitiveHeadersInfo].bundles.to_list()
     if not bundles:
-        return [StLibraryStubSourceInfo(stub_cs = [], headers_dirs = [])]
+        return [StLibraryStubSourceInfo(stub_cs = [], headers_dirs = [], shim_headers = [], shim_root = "")]
 
     compiler = ctx.toolchains["//st:toolchain_type"].compiler
 
     stub_cs = []
     headers_dirs = []
+    shim_headers = []
+
+    # Shim wrappers live under a per-target subdir so multiple bundles
+    # (each in its own Bazel package) can coexist without file-path
+    # collisions -- the resulting tree is used as an -iquote root so a
+    # stub's `#include "<pkg>/<mod>.h"` resolves against it.
+    shim_root_rel = ctx.label.name + "_include"
+    shim_root_path = paths.join(ctx.bin_dir.path, ctx.label.package, shim_root_rel)
 
     # One stub .c per underlying leaf library, keyed off its own headers_dir
     # so each stub .c is compiled against exactly the headers its
@@ -51,10 +60,29 @@ def _st_library_stub_source_impl(ctx):
     # and keeps each stub .c minimal.
     for i, bundle in enumerate(bundles):
         sources = bundle.sources.to_list()
+
+        # Every source in a bundle comes from a single st_library, so they
+        # share a package (short_path directory). Use it as the include
+        # prefix so a stub's `#include "<pkg>/<mod>.h"` matches the
+        # workspace-relative directory of the underlying .st source.
+        include_prefix = paths.dirname(sources[0].short_path) if sources else ""
+
+        # One thin wrapper per source: sits at
+        # <shim_root>/<pkg>/<mod>.h in the -iquote tree, and just
+        # `#include <mod.h>` -- angle form so it falls through to the
+        # bundle's own headers_dir on -isystem (only one bundle_dir per
+        # compile, so no ambiguity).
+        for src in sources:
+            mod = paths.split_extension(src.basename)[0]
+            wrapper_rel = paths.join(shim_root_rel, include_prefix, mod + ".h") if include_prefix else paths.join(shim_root_rel, mod + ".h")
+            wrapper = ctx.actions.declare_file(wrapper_rel)
+            ctx.actions.write(wrapper, "#include <%s.h>\n" % mod)
+            shim_headers.append(wrapper)
+
         stub_c = ctx.actions.declare_file("%s_%d.c" % (ctx.label.name, i))
         ctx.actions.run(
             executable = ctx.executable._generate_weak_stubs_py,
-            arguments = [stub_c.path, bundle.headers_dir.path, ctx.file._library_stubs_template.path, compiler.path] +
+            arguments = [stub_c.path, bundle.headers_dir.path, ctx.file._library_stubs_template.path, compiler.path, include_prefix] +
                         [f.path for f in sources],
             inputs = depset(sources + [bundle.headers_dir, compiler, ctx.file._library_stubs_template]),
             outputs = [stub_c],
@@ -64,7 +92,12 @@ def _st_library_stub_source_impl(ctx):
         stub_cs.append(stub_c)
         headers_dirs.append(bundle.headers_dir)
 
-    return [StLibraryStubSourceInfo(stub_cs = stub_cs, headers_dirs = headers_dirs)]
+    return [StLibraryStubSourceInfo(
+        stub_cs = stub_cs,
+        headers_dirs = headers_dirs,
+        shim_headers = shim_headers,
+        shim_root = shim_root_path,
+    )]
 
 _st_library_stub_source = rule(
     implementation = _st_library_stub_source_impl,
@@ -114,12 +147,19 @@ def _st_library_stubs_compile_impl(ctx):
     # flag) so the dep-relative `#include "../<sibling>_headers_st/<mod>.h"`
     # (emitted by generate_headers into dep.plc.h) still resolves against
     # the sandboxed file tree.
+    #
+    # The shim root goes on -iquote so a stub's workspace-relative
+    # `#include "<pkg>/<mod>.h"` resolves to the per-source thin wrapper,
+    # which in turn `#include <mod.h>` falls through to that stub's own
+    # bundle_dir on -isystem.
     all_dep_headers_dir_files = depset(info.headers_dirs)
+    shim_header_files = depset(info.shim_headers)
     all_compilation_outputs = []
     for stub_c, bundle_dir in zip(info.stub_cs, info.headers_dirs):
         headers_compilation_context = cc_common.create_compilation_context(
-            headers = all_dep_headers_dir_files,
+            headers = depset(transitive = [all_dep_headers_dir_files, shim_header_files]),
             system_includes = depset([bundle_dir.path]),
+            quote_includes = depset([info.shim_root] if info.shim_root else []),
         )
         _, compilation_outputs = cc_common.compile(
             actions = ctx.actions,

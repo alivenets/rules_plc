@@ -1,0 +1,41 @@
+load("@rules_plc//st:defs.bzl", "st_binary", "st_library")
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+# BASE_FB is defined entirely in ST.
+st_library(
+    name = "base",
+    srcs = ["base.st"],
+)
+
+# EXT_FB is declared `{external}` in mid.st; its body lives in mid.cc,
+# linked through mid_cc below.
+st_library(
+    name = "mid",
+    srcs = ["mid.st"],
+    deps = [":base"],
+)
+
+cc_library(
+    name = "mid_cc",
+    srcs = ["mid.cc"],
+    deps = [":mid"],
+)
+
+st_binary(
+    name = "main",
+    program = "main_program.st",
+    cc_deps = [":mid_cc"],
+    deps = [":mid"],
+)
+
+cc_test(
+    name = "main_test",
+    srcs = ["main_test.cc"],
+    data = [":main"],
+    deps = [
+        ":mid_cc",
+        "@bazel_tools//tools/cpp/runfiles",
+        "@googletest//:gtest_main",
+    ],
+)
+

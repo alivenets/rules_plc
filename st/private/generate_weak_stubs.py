@@ -12,7 +12,12 @@ library missing (or not yet given) a native implementation still links and
 runs -- as a no-op / zero value -- instead of failing at link time with an
 undefined reference far from the actual mistake.
 
-Usage: generate_weak_stubs.py <out.c> <headers_dir> <template> <compiler> <src>...
+Usage: generate_weak_stubs.py <out.c> <headers_dir> <template> <compiler> <include_prefix> <src>...
+
+<include_prefix> is prepended (with a `/`) to every `#include` the generated
+.c emits, so the stub renders `#include "<prefix>/<mod>.h"` -- matching the
+workspace-relative path of the underlying .st source from Bazel's POV. May
+be empty to fall back to a bare `#include "<mod>.h"`.
 """
 
 import json
@@ -109,7 +114,7 @@ def stub_body(return_type):
 
 
 def main():
-    out_path, headers_dir, template_path, compiler, *sources = sys.argv[1:]
+    out_path, headers_dir, template_path, compiler, include_prefix, *sources = sys.argv[1:]
 
     externals, type_modules = find_externals(compiler, sources)
 
@@ -125,6 +130,9 @@ def main():
                 headers[module] = None
         return headers[module]
 
+    def include_path(module):
+        return f"{include_prefix}/{module}" if include_prefix else module
+
     includes = []
     stubs = []
     for name, module, referenced_types in externals:
@@ -135,8 +143,9 @@ def main():
         if not match:
             continue
 
-        if module not in includes:
-            includes.append(module)
+        module_include = include_path(module)
+        if module_include not in includes:
+            includes.append(module_include)
         # The stub's own signature may reference other modules' types (e.g. a
         # FUNCTION_BLOCK-typed parameter/field) -- #include those too, so the
         # generated stub .c file actually has those types in scope. Only
@@ -146,13 +155,10 @@ def main():
         # way.
         for type_name in referenced_types:
             type_module = type_modules.get(type_name)
-            if (
-                type_module
-                and type_module != module
-                and type_module not in includes
-                and header_text(type_module)
-            ):
-                includes.append(type_module)
+            if type_module and type_module != module and header_text(type_module):
+                type_include = include_path(type_module)
+                if type_include not in includes:
+                    includes.append(type_include)
 
         return_type = match.group("return_type").strip()
         stubs.append(

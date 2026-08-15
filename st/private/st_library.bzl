@@ -39,17 +39,15 @@ def _st_library_impl(ctx):
 
         args.add("-o", out)
 
-        # `--generate-external-constructors` emits a strong ctor (plus the
-        # matching vtable ctor / instance) for every {external} FB
-        # declared in `-c` sources. Passed unconditionally, every library
-        # in a chain that redeclares the same {external} FB emits its
-        # own strong ctor and the final link fails with "duplicate
-        # symbol". Restricted here to leaf libraries (no ST deps): a leaf
-        # is the topmost declarer of its own {external} FBs, so it owns
-        # their ctors; any non-leaf inherits them via its deps' linking
-        # context and just emits an undefined reference.
-        if not ctx.attr.deps:
-            args.add("--generate-external-constructors")
+        # `--generate-external-constructors` tells plc to emit a strong
+        # ctor (plus the matching vtable ctor / instance) for every
+        # {external} FB declared in this library's own `-c` sources.
+        # plc's own definition of the flag ("Generate constructor for
+        # units marked as {external} but not for any included files")
+        # already self-restricts to own srcs, so dep-included `{external}`
+        # FBs from `-i` sources do not get a duplicate ctor here -- their
+        # ctor is emitted by whichever upstream library declares them.
+        args.add("--generate-external-constructors")
 
         ctx.actions.run(
             executable = compiler,

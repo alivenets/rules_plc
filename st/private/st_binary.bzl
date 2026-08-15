@@ -77,10 +77,25 @@ def _link(ctx, toolchain, own_objects, cc_link_files):
 
     out = ctx.actions.declare_file(ctx.label.name)
 
+    # A cc_dep may transitively re-export an st_library that already
+    # appears in `deps` (e.g. a cc_library wrapping an {external} POU
+    # implementation, with the underlying st_library in its own deps).
+    # That library's compiled object then reaches this link step twice:
+    # once via `dep_objects` (StInfo transitively) and once via
+    # `cc_link_files` (CcInfo transitively). plc's linker driver hands
+    # every input straight to ld.lld, which rejects the duplicate as a
+    # duplicate-symbol error. Dedupe by File identity, preserving the
+    # own -> deps -> cc_deps order.
+    seen = {}
+    link_files = []
+    for f in own_objects + dep_objects.to_list() + cc_link_files:
+        if f.path in seen:
+            continue
+        seen[f.path] = True
+        link_files.append(f)
+
     args = ctx.actions.args()
-    args.add_all(own_objects)
-    args.add_all(dep_objects)
-    args.add_all(cc_link_files)
+    args.add_all(link_files)
     args.add("-o", out)
     args.add("--linker", toolchain.linker.path)
     args.add("--fuse-ld", "lld")

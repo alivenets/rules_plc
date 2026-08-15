@@ -1,0 +1,109 @@
+diff --git a/src/lowering/polymorphism/table/mod.rs b/src/lowering/polymorphism/table/mod.rs
+--- a/src/lowering/polymorphism/table/mod.rs
++++ b/src/lowering/polymorphism/table/mod.rs
+@@ -33,7 +33,18 @@
+ /// defined in this compilation unit. External/Include POUs rely on the library
+ /// to provide the instances, unless `--generate-external-constructors` is set
+ /// for External POUs.
+-pub fn is_internal_instance(linkage: LinkageType, generate_external_constructors: bool) -> bool {
++pub fn is_internal_instance(
++    linkage: LinkageType,
++    unit_linkage: LinkageType,
++    generate_external_constructors: bool,
++) -> bool {
++    // POUs from `-i`-included compilation units are declared here for
++    // type-resolution only -- their constructor is owned by whichever
++    // library takes them as `-c` sources. Never emit ctors for them
++    // here, regardless of `--generate-external-constructors`.
++    if matches!(unit_linkage, LinkageType::Include) {
++        return false;
++    }
+     match linkage {
+         LinkageType::External if generate_external_constructors => true,
+         LinkageType::External | LinkageType::Include => false,
+diff --git a/src/lowering/polymorphism/table/pou.rs b/src/lowering/polymorphism/table/pou.rs
+--- a/src/lowering/polymorphism/table/pou.rs
++++ b/src/lowering/polymorphism/table/pou.rs
+@@ -89,6 +89,7 @@
+ 
+     pub fn generate(&mut self, index: &Index, units: &mut Vec<CompilationUnit>) {
+         for unit in units {
++            let unit_linkage = unit.linkage;
+             let mut definitions = Vec::new();
+             let mut internal_instances = Vec::new();
+             let mut external_instances = Vec::new();
+@@ -99,7 +100,7 @@
+                 let instance = self.generate_vtable_instance(pou, &definition);
+ 
+                 definitions.push(definition);
+-                if super::is_internal_instance(pou.linkage, self.generate_external_constructors) {
++                if super::is_internal_instance(pou.linkage, unit_linkage, self.generate_external_constructors) {
+                     internal_instances.push(instance);
+                 } else {
+                     external_instances.push(instance);
+diff --git a/src/lowering/polymorphism/table/interface.rs b/src/lowering/polymorphism/table/interface.rs
+--- a/src/lowering/polymorphism/table/interface.rs
++++ b/src/lowering/polymorphism/table/interface.rs
+@@ -168,7 +168,7 @@
+                 continue;
+             }
+ 
+-            if super::is_internal_instance(ast_pou.linkage, self.generate_external_constructors) {
++            if super::is_internal_instance(ast_pou.linkage, unit.linkage, self.generate_external_constructors) {
+                 return LinkageType::Internal;
+             }
+             has_external = true;
+@@ -202,7 +202,7 @@
+                 let Some(interface) = index.find_interface(iface_name) else { continue };
+                 let instance = self.generate_itable_instance(index, interface, pou, unit_file);
+ 
+-                if super::is_internal_instance(ast_pou.linkage, self.generate_external_constructors) {
++                if super::is_internal_instance(ast_pou.linkage, unit.linkage, self.generate_external_constructors) {
+                     internal_instances.push(instance);
+                 } else {
+                     external_instances.push(instance);
+diff --git a/compiler/plc_lowering/src/initializer.rs b/compiler/plc_lowering/src/initializer.rs
+--- a/compiler/plc_lowering/src/initializer.rs
++++ b/compiler/plc_lowering/src/initializer.rs
+@@ -71,6 +71,10 @@
+ pub struct Initializer {
+     pub id_provider: IdProvider,
+     index: Option<Rc<Index>>,
++    /// True when the current unit was parsed from an `-i` include source.
++    /// In that case, constructor definitions must not be emitted here --
++    /// they are produced by whichever library takes the source as `-c`.
++    unit_is_include: bool,
+     /// Stateful constructor per POU/struct
+     constructors: FxIndexMap<String, Body>,
+     /// User defined constructor names per POU/datatype
+@@ -582,6 +586,7 @@
+         Initializer {
+             id_provider,
+             index: None,
++            unit_is_include: false,
+             constructors: Default::default(),
+             user_defined_constructors: Default::default(),
+             stack_constructor: Default::default(),
+@@ -596,6 +601,10 @@
+     /// Adds constructor calls for stack variables to each function
+     /// Adds a global constructor function with global variable initializations
+     pub fn apply_initialization(mut self, mut unit: CompilationUnit, index: Rc<Index>) -> CompilationUnit {
++        // Units brought in via `-i` are compiled elsewhere; force all
++        // constructor bodies to declarations only so we never redefine ctors
++        // that the owning library has already produced.
++        self.unit_is_include = matches!(unit.linkage, LinkageType::Include);
+         // Set the index
+         self.index = Some(index.clone());
+         // Pre-pass: register all constructors for all types before visiting variables
+@@ -678,6 +687,11 @@
+     /// - Included types always get `Body::External` — their constructors are built with the library.
+     /// - Built-in types get `Body::None` (no constructor).
+     fn constructor_body_for_linkage(&self, linkage: LinkageType) -> Body {
++        // Units parsed from `-i` always yield declarations only: the owning
++        // library that compiles the source as `-c` provides the definition.
++        if self.unit_is_include {
++            return Body::External(vec![]);
++        }
+         match linkage {
+             LinkageType::Internal => Body::Internal(vec![]),
+             LinkageType::External if self.generate_externals => Body::Internal(vec![]),

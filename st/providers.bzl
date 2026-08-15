@@ -50,6 +50,8 @@ StLibraryStubSourceInfo = provider(
     fields = {
         "stub_cs": "List of generated stub .c Files, one per underlying library in `library`'s transitive closure that declared at least one {external} POU. Empty when nothing to stub.",
         "headers_dirs": "List of headers_dir Files, matching stub_cs positionally, for compiling each stub .c against the exact headers it was generated from.",
+        "shim_headers": "List of per-source wrapper .h Files placed at `<shim_root>/<pkg>/<mod>.h`. Each just `#include <mod.h>`, so a stub's workspace-relative `#include \"<pkg>/<mod>.h\"` resolves via -iquote to the wrapper, which falls through to the bundle_dir on -isystem.",
+        "shim_root": "Exec-root-relative path of the wrapper tree, passed as -iquote when compiling each stub .c. Empty when there are no stubs to compile.",
     },
 )
 
