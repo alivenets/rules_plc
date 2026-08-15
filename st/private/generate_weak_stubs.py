@@ -114,7 +114,9 @@ def stub_body(return_type):
 
 
 def main():
-    out_path, headers_dir, template_path, compiler, include_prefix, *sources = sys.argv[1:]
+    out_path, headers_dir, template_path, compiler, include_prefix, *sources = sys.argv[
+        1:
+    ]
 
     externals, type_modules = find_externals(compiler, sources)
 

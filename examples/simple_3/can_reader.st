@@ -8,8 +8,7 @@ FUNCTION_BLOCK CAN_READER
     END_VAR
 
     buffer.byte1 := buffer.byte1 + 1;
-    
+
     out_msg.value_byte := buffer.byte1;
 
 END_FUNCTION_BLOCK
-

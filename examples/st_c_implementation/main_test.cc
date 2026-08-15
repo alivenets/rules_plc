@@ -43,9 +43,8 @@ TEST(MainBinary, RunsAndExitsCleanly) {
     std::unique_ptr<Runfiles> runfiles(Runfiles::CreateForTest(&error));
     ASSERT_NE(runfiles, nullptr) << error;
 
-    std::string binary_path =
-        runfiles->Rlocation("_main/st_c_implementation/main");
-    FILE* pipe = popen((binary_path + " 2>&1").c_str(), "r");
+    std::string binary_path = runfiles->Rlocation("_main/st_c_implementation/main");
+    FILE *pipe = popen((binary_path + " 2>&1").c_str(), "r");
     ASSERT_NE(pipe, nullptr);
 
     std::string output;
