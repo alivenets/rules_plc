@@ -10,7 +10,8 @@ cc_common.merge_cc_infos.
 StCompilationContext = provider(
     doc = "ST source files a target exposes to dependents at compile time.",
     fields = {
-        "sources": "depset of ST source Files (.st/.dut): this target's own srcs plus all transitive deps'. Passed to dependents' compiles via plc's `-i` so cross-library POU/TYPE references resolve.",
+        "sources": "depset of ST source Files (.st/.dut) whose implementation this target carries: its own srcs plus its regular deps' sources, transitively. Passed to dependents' compiles via plc's `-i` (together with interface_sources) so cross-library POU/TYPE references resolve. This is the bucket a downstream packaging rule (e.g. one shipping a project to a remote plc) can enumerate to get exactly the ST files this target owns.",
+        "interface_sources": "depset of ST source Files declared by upstream `interface_deps` (typically vendor-supplied POU/TYPE declarations whose real implementation is not shipped from this target -- a downstream st_binary's cc_deps, or a remote plc's own runtime, provides it). Visible to plc's `-i` at compile time just like `sources`, but intentionally omitted from the `sources` bucket so a packaging rule can filter them out. Propagates transitively: a regular dep's own interface_sources also land here, and any dep pulled in via `interface_deps` contributes its `sources` and its `interface_sources` here.",
     },
 )
 
@@ -62,17 +63,25 @@ StLibraryStubsInfo = provider(
     },
 )
 
-def create_st_compilation_context(sources = depset()):
-    return StCompilationContext(sources = sources)
+def create_st_compilation_context(sources = depset(), interface_sources = depset()):
+    return StCompilationContext(sources = sources, interface_sources = interface_sources)
 
 def create_st_linking_context(objects = depset()):
     return StLinkingContext(objects = objects)
 
 def merge_st_infos(st_infos):
-    """Merges the compilation and linking contexts of st_infos, mirroring cc_common.merge_cc_infos."""
+    """Merges the compilation and linking contexts of st_infos, mirroring cc_common.merge_cc_infos.
+
+    Both source buckets (`sources` and `interface_sources`) are preserved -- each merged StInfo's
+    interface_sources stay in interface_sources, matching what a regular `deps` collection should
+    look like from the merging target's perspective. Callers that want to demote an StInfo's own
+    `sources` into their own interface_sources bucket (the `interface_deps` semantics) must do so
+    themselves rather than through this helper.
+    """
     return StInfo(
         compilation_context = create_st_compilation_context(
             sources = depset(transitive = [info.compilation_context.sources for info in st_infos]),
+            interface_sources = depset(transitive = [info.compilation_context.interface_sources for info in st_infos]),
         ),
         linking_context = create_st_linking_context(
             objects = depset(transitive = [info.linking_context.objects for info in st_infos]),

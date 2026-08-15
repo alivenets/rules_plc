@@ -7,21 +7,50 @@ load("//st:private/st_headers.bzl", "st_library_headers_gen")
 load("//st:providers.bzl", "StHeadersInfo", "StInfo", "StTransitiveHeadersInfo", "create_st_compilation_context", "create_st_linking_context", "merge_st_infos")
 
 def _st_library_impl(ctx):
-    if not ctx.files.srcs and not ctx.attr.deps:
-        fail("%s: st_library must have at least one src or dep" % ctx.label)
+    if not ctx.files.srcs and not ctx.attr.deps and not ctx.attr.interface_deps:
+        fail("%s: st_library must have at least one src, dep, or interface_dep" % ctx.label)
 
     toolchain = ctx.toolchains["//st:toolchain_type"]
     compiler = toolchain.compiler
 
     dep_info = merge_st_infos([dep[StInfo] for dep in ctx.attr.deps])
     dep_objects = dep_info.linking_context.objects
-    dep_sources = dep_info.compilation_context.sources
 
-    # Own srcs plus all transitive deps' srcs, exposed via
+    # Regular deps: their `sources` stay in the "owned" bucket (they carry
+    # their own implementation, shippable to a remote plc); their own
+    # `interface_sources` propagate transitively into ours.
+    dep_owned_sources = dep_info.compilation_context.sources
+    dep_interface_sources = dep_info.compilation_context.interface_sources
+
+    # interface_deps: everything the dep exposes gets demoted into OUR
+    # interface_sources bucket -- both its own `sources` (which we treat
+    # as vendor-supplied interfaces from our perspective, even though the
+    # vendor library itself may carry them as owned) and its own
+    # transitive `interface_sources`. Intent: at compile time we still
+    # need plc to see them via `-i` (for cross-library type resolution),
+    # but a downstream packaging rule enumerating `sources` alone must
+    # not ship them (their real implementation is provided by whatever
+    # side of the deployment consumes this library, e.g. the remote plc
+    # itself, or a downstream st_binary's cc_deps).
+    interface_dep_infos = [dep[StInfo] for dep in ctx.attr.interface_deps]
+    interface_dep_sources_bucket = depset(
+        transitive = [
+                         dep_interface_sources,
+                     ] + [info.compilation_context.sources for info in interface_dep_infos] +
+                     [info.compilation_context.interface_sources for info in interface_dep_infos],
+    )
+
+    # Union both buckets to feed plc's `-i` at compile time (both need to
+    # be visible for cross-library type resolution).
+    compile_i_sources = depset(transitive = [dep_owned_sources, interface_dep_sources_bucket])
+
+    # Own srcs plus all transitive regular deps' srcs, exposed via
     # StInfo.compilation_context.sources so dependents' compiles (and
     # st_binary's) can pass every ST source in the transitive closure to
-    # plc via `-i` and resolve any cross-library POU/TYPE reference.
-    own_sources = depset(ctx.files.srcs, transitive = [dep_sources])
+    # plc via `-i` and resolve any cross-library POU/TYPE reference. Note
+    # this excludes anything under the interface_sources bucket -- those
+    # are re-exported separately below.
+    own_sources = depset(ctx.files.srcs, transitive = [dep_owned_sources])
 
     # A façade st_library (srcs empty, deps non-empty) skips StCompile
     # entirely: it produces no object of its own and just re-exports its
@@ -35,7 +64,7 @@ def _st_library_impl(ctx):
         args = ctx.actions.args()
         args.add("-c")
         args.add_all(ctx.files.srcs)
-        args.add_all(dep_sources, before_each = "-i")
+        args.add_all(compile_i_sources, before_each = "-i")
 
         args.add("-o", out)
 
@@ -52,7 +81,7 @@ def _st_library_impl(ctx):
         ctx.actions.run(
             executable = compiler,
             arguments = [args],
-            inputs = depset(ctx.files.srcs + toolchain.compiler_runtime_files, transitive = [dep_sources]),
+            inputs = depset(ctx.files.srcs + toolchain.compiler_runtime_files, transitive = [compile_i_sources]),
             outputs = [out],
             mnemonic = "StCompile",
             progress_message = "Compiling ST library %{label}",
@@ -88,15 +117,20 @@ def _st_library_impl(ctx):
     # Does not include plc's generated C headers -- this compile-only rule is
     # wrapped, along with st_library_headers_gen, by the public st_library
     # macro below, which bundles both into one target.
+    #
+    # interface_deps' CcInfo is intentionally omitted -- an interface_dep
+    # is source-visible only, so its (potentially stubbed-out or
+    # duplicate-symbol-prone) linkable objects must not reach the link.
     exported_cc_info = cc_common.merge_cc_infos(cc_infos = own_cc_infos + [dep[CcInfo] for dep in ctx.attr.deps])
 
-    # Union of each dep's headers bundles -- this compile rule doesn't
-    # generate headers of its own (st_library_headers_gen does, and the
-    # fusion rule below adds its bundle on top), so only forward whatever
-    # the deps already contributed.
+    # Union of each dep's and interface_dep's headers bundles -- this
+    # compile rule doesn't generate headers of its own
+    # (st_library_headers_gen does, and the fusion rule below adds its
+    # bundle on top), so only forward whatever the deps already
+    # contributed.
     dep_bundles = [
         dep[StTransitiveHeadersInfo].bundles
-        for dep in ctx.attr.deps
+        for dep in ctx.attr.deps + ctx.attr.interface_deps
         if StTransitiveHeadersInfo in dep
     ]
 
@@ -105,6 +139,7 @@ def _st_library_impl(ctx):
         StInfo(
             compilation_context = create_st_compilation_context(
                 sources = own_sources,
+                interface_sources = interface_dep_sources_bucket,
             ),
             linking_context = create_st_linking_context(
                 objects = depset(own_objects, transitive = [dep_objects]),
@@ -124,6 +159,10 @@ _st_library = rule(
         "deps": attr.label_list(
             providers = [StInfo],
             doc = "Other st_library targets this library's implementation calls into.",
+        ),
+        "interface_deps": attr.label_list(
+            providers = [StInfo],
+            doc = "Other st_library targets this library's implementation calls into, at the source/interface level only -- their compiled objects are NOT linked into consumers. Use for {external} POU declarations whose real implementation is provided elsewhere (typically via a downstream st_binary's cc_deps), to avoid the stubbed-out or duplicate-symbol object from reaching ld.",
         ),
         "_cc_toolchain": attr.label(default = Label("@rules_cc//cc:current_cc_toolchain")),
     },
@@ -170,7 +209,7 @@ _st_provider_fusion = rule(
     doc = "Combines a compiled st_library with its generated headers (if any) into one target. Internal -- use the public st_library macro below.",
 )
 
-def st_library(name, srcs = [], deps = [], visibility = None, **kwargs):
+def st_library(name, srcs = [], deps = [], interface_deps = [], visibility = None, **kwargs):
     """Compiles ST sources into a relocatable object, for linking into an st_binary/st_test or another st_library.
 
     Also generates and exports plc's C headers for srcs, so a
@@ -189,19 +228,26 @@ def st_library(name, srcs = [], deps = [], visibility = None, **kwargs):
             declarations) making up this library. Compiled into a single
             object and re-exported to dependents' compiles so they can
             resolve any POU/TYPE reference into this library. Optional
-            when `deps` is non-empty (façade library).
+            when `deps` or `interface_deps` is non-empty (façade library).
         deps: Other st_library targets this library's implementation calls into.
+        interface_deps: Other st_library targets this library's implementation
+            calls into, at the source/interface level only -- their compiled
+            objects are NOT linked into consumers. Use for {external} POU
+            declarations whose real implementation is provided elsewhere
+            (typically via a downstream st_binary's cc_deps), to avoid the
+            stubbed-out or duplicate-symbol object from reaching ld.
         visibility: Visibility of this library (the underlying compile-only/
             headers-only targets stay private regardless).
         **kwargs: Forwarded to the underlying compile-only rule.
     """
-    if not srcs and not deps:
-        fail("st_library %s: must have at least one of srcs or deps" % name)
+    if not srcs and not deps and not interface_deps:
+        fail("st_library %s: must have at least one of srcs, deps, or interface_deps" % name)
     compile_name = name + "_lib"
     _st_library(
         name = compile_name,
         srcs = srcs,
         deps = deps,
+        interface_deps = interface_deps,
         visibility = ["//visibility:private"],
         **kwargs
     )
@@ -211,7 +257,12 @@ def st_library(name, srcs = [], deps = [], visibility = None, **kwargs):
         st_library_headers_gen(
             name = headers_gen_name,
             srcs = srcs,
-            deps = deps,
+            # Both dep flavors' sources need to be visible to plc's
+            # header-gen step for the same cross-library type-resolution
+            # reason they're visible to the compile step -- and their
+            # headers get auto-included from this library's own
+            # dependencies.plc.h just the same.
+            deps = deps + interface_deps,
             visibility = ["//visibility:private"],
         )
     _st_provider_fusion(

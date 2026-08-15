@@ -131,11 +131,20 @@ def _st_library_headers_gen_impl(ctx):
                 sources = hi.sources.to_list(),
             ))
 
+    # Both source buckets go to plc's `-i`: vendor interfaces are needed
+    # for cross-library type resolution just as much as owned sources are.
+    all_dep_sources = depset(
+        transitive = [
+            dep_info.compilation_context.sources,
+            dep_info.compilation_context.interface_sources,
+        ],
+    )
+
     headers_dir = generate_st_headers(
         ctx,
         compiler,
         all_sources,
-        dep_info.compilation_context.sources,
+        all_dep_sources,
         auto_include_sources = dut_sources,
         dep_auto_include_bundles = dep_auto_include_bundles,
     )

@@ -1,0 +1,99 @@
+load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("@rules_plc//st:defs.bzl", "st_binary", "st_library")
+load(":remote_manifest.bzl", "remote_manifest")
+
+# Vendor interface: a {external} FUNCTION_BLOCK declaration only, no
+# body. Kept as a plain st_library because interface_deps needs an
+# StInfo provider on the other side. In production this target would
+# ship from a third_party/vendor Bazel module.
+st_library(
+    name = "vendor_pump",
+    srcs = ["vendor_pump.st"],
+)
+
+# Local test-time impl of Pump. Native C++, mirroring the same pattern
+# as //st_c_implementation:mid_cc -- plc sees only the {external}
+# declaration in vendor_pump.st and emits nothing for the body, so
+# vendor_pump_stub.cc supplies it here for the LOCAL build. On a
+# remote plc the vendor's own runtime provides the real body instead.
+#
+# The cc_library keeps vendor_pump under `deps` (not implementation_deps)
+# because vendor_pump.st is what defines the Pump_type struct layout
+# the stub function operates on -- vendor_pump's generated headers
+# reach vendor_pump_stub.cc through vendor_pump's CcInfo.
+cc_library(
+    name = "vendor_pump_stub",
+    srcs = ["vendor_pump_stub.cc"],
+    deps = [":vendor_pump"],
+)
+
+# Production code. `interface_deps = [":vendor_pump"]` gives plant.st
+# compile-time visibility of Pump for cross-library type resolution
+# (plc's `-i`), but keeps vendor_pump.st out of the exported
+# StInfo.compilation_context.sources bucket -- so a downstream
+# deployment rule enumerating `sources` never uploads it to the remote
+# plc (which already has the vendor's real impl and would collide
+# with, or worse silently prefer, our copy).
+st_library(
+    name = "plant",
+    srcs = ["plant.st"],
+    interface_deps = [":vendor_pump"],
+)
+
+# Local test binary. Wires the production st_library up to the C++
+# stub via cc_deps, plus spells out interface_deps on the vendor
+# interface (redundant with what :plant already pulls in through its
+# own interface_deps -- kept explicit to make BUILD-level intent
+# obvious: this binary targets a system whose Pump impl is externally
+# provided -- locally by :vendor_pump_stub, on the remote plc by the
+# vendor's real runtime).
+st_binary(
+    name = "main",
+    cc_deps = [":vendor_pump_stub"],
+    interface_deps = [":vendor_pump"],
+    program = "main_program.st",
+    deps = [":plant"],
+)
+
+cc_test(
+    name = "main_test",
+    srcs = ["main_test.cc"],
+    data = [":main"],
+    deps = [
+        ":plant",
+        ":vendor_pump",
+        ":vendor_pump_stub",
+        "@bazel_tools//tools/cpp/runfiles",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# Remote-deployment manifests for the production library. The "owned"
+# bucket is what a hypothetical "ship to remote plc" rule would upload;
+# the "interfaces" bucket is what stays local (vendor-supplied, already
+# present on the remote side).
+remote_manifest(
+    name = "plant_owned_manifest",
+    bucket = "owned",
+    target = ":plant",
+)
+
+remote_manifest(
+    name = "plant_interfaces_manifest",
+    bucket = "interfaces",
+    target = ":plant",
+)
+
+diff_test(
+    name = "plant_owned_manifest_test",
+    file1 = "plant_owned_manifest.expected.txt",
+    file2 = ":plant_owned_manifest",
+)
+
+diff_test(
+    name = "plant_interfaces_manifest_test",
+    file1 = "plant_interfaces_manifest.expected.txt",
+    file2 = ":plant_interfaces_manifest",
+)

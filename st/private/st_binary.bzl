@@ -82,6 +82,10 @@ def _link(ctx, toolchain, own_objects, cc_link_files):
     dep_info = merge_st_infos([dep[StInfo] for dep in ctx.attr.deps])
     dep_objects = dep_info.linking_context.objects
 
+    # interface_deps intentionally contribute nothing to the link -- their
+    # StInfo objects are compile-time-only. Their real implementation is
+    # provided elsewhere, typically via this binary's cc_deps.
+
     out = ctx.actions.declare_file(ctx.label.name)
 
     # A cc_dep may transitively re-export an st_library that already
@@ -125,10 +129,28 @@ def _st_binary_impl(ctx):
 
     dep_info = merge_st_infos([dep[StInfo] for dep in ctx.attr.deps])
 
-    # Every ST source in the transitive closure is passed to plc via `-i`
-    # so this binary's program can resolve any POU/TYPE declared in a dep --
-    # see StCompilationContext.sources in //st:providers.bzl.
-    dep_sources = dep_info.compilation_context.sources
+    # Regular deps: their `sources` stay owned (shipped with this binary
+    # in a hypothetical remote-compile packaging step); their own
+    # `interface_sources` propagate transitively into ours.
+    dep_owned_sources = dep_info.compilation_context.sources
+    dep_interface_sources = dep_info.compilation_context.interface_sources
+
+    # interface_deps: everything the dep exposes is demoted into OUR
+    # interface_sources bucket -- see _st_library_impl for the rationale.
+    interface_dep_infos = [dep[StInfo] for dep in ctx.attr.interface_deps]
+    interface_dep_sources_bucket = depset(
+        transitive = [
+                         dep_interface_sources,
+                     ] + [info.compilation_context.sources for info in interface_dep_infos] +
+                     [info.compilation_context.interface_sources for info in interface_dep_infos],
+    )
+
+    # Every ST source in the transitive closure (both dep flavors, from
+    # both buckets) is passed to plc via `-i` so this binary's program
+    # can resolve any POU/TYPE declared in a dep -- see
+    # StCompilationContext.sources / interface_sources in
+    # //st:providers.bzl.
+    dep_sources = depset(transitive = [dep_owned_sources, interface_dep_sources_bucket])
 
     own_pous = ctx.files.srcs
     if ctx.file.program == None and not own_pous:
@@ -252,9 +274,16 @@ touch {marker}
     # st_library) and its own compiled POU object plus every dep's,
     # minus the entry-point wrapper (which defines `main` and must not
     # leak into a downstream link).
+    #
+    # The two source buckets stay separate: `sources` holds this
+    # binary's own non-program srcs plus regular deps' owned sources
+    # (shippable to a remote plc), and `interface_sources` holds
+    # everything demoted via any interface_deps chain (vendor
+    # interfaces).
     st_info = StInfo(
         compilation_context = create_st_compilation_context(
-            sources = depset(ctx.files.srcs, transitive = [dep_sources]),
+            sources = depset(ctx.files.srcs, transitive = [dep_owned_sources]),
+            interface_sources = interface_dep_sources_bucket,
         ),
         linking_context = create_st_linking_context(
             objects = depset(
@@ -283,6 +312,10 @@ _COMMON_ATTRS = {
     "deps": attr.label_list(
         providers = [StInfo],
         doc = "st_library targets this binary's program calls into.",
+    ),
+    "interface_deps": attr.label_list(
+        providers = [StInfo],
+        doc = "st_library targets this binary's program calls into, at the source/interface level only -- their compiled objects are NOT linked. Use for {external} POU declarations whose real implementation is provided via `cc_deps` instead, to avoid the stubbed-out or duplicate-symbol object from reaching ld.",
     ),
     "cc_deps": attr.label_list(
         providers = [CcInfo],
@@ -347,7 +380,7 @@ _st_binary_provider_fusion = rule(
     doc = "Combines an st_binary with its generated headers (if any) into one target, forwarding the binary's own DefaultInfo (so the fused target stays runnable/testable) and OutputGroupInfo (so its _validation actions -- e.g. StValidateProgram -- still run). Internal -- use the public st_binary macro below.",
 )
 
-def st_binary(name, srcs = [], deps = [], cc_deps = [], program = None, visibility = None, **kwargs):
+def st_binary(name, srcs = [], deps = [], interface_deps = [], cc_deps = [], program = None, visibility = None, **kwargs):
     """Compiles a PROGRAM (plus any st_library deps) into a native executable, auto-generating the FUNCTION main entry point that runs it.
 
     If srcs are given, also generates and exports plc's C headers for them
@@ -360,6 +393,11 @@ def st_binary(name, srcs = [], deps = [], cc_deps = [], program = None, visibili
         srcs: Additional ST source files (.st implementations, .dut TYPE
             declarations) local to this binary, compiled alongside program.
         deps: st_library targets this binary's program calls into.
+        interface_deps: st_library targets this binary's program calls into,
+            at the source/interface level only -- their compiled objects
+            are NOT linked. Use for {external} POU declarations whose real
+            implementation is provided via `cc_deps` instead, to avoid the
+            stubbed-out or duplicate-symbol object from reaching ld.
         cc_deps: Native (C/C++) libraries linked into this binary -- e.g. an
             st_library_stub, or an ordinary cc_library implementing
             {external} POUs declared in a dep's srcs.
@@ -379,6 +417,7 @@ def st_binary(name, srcs = [], deps = [], cc_deps = [], program = None, visibili
         name = bin_name,
         srcs = srcs,
         deps = deps,
+        interface_deps = interface_deps,
         cc_deps = cc_deps,
         program = program,
         visibility = ["//visibility:private"],
@@ -392,7 +431,9 @@ def st_binary(name, srcs = [], deps = [], cc_deps = [], program = None, visibili
         st_library_headers_gen(
             name = headers_gen_name,
             srcs = srcs,
-            deps = deps,
+            # Both dep flavors' sources need to be visible to plc's
+            # header-gen step for cross-library type resolution.
+            deps = deps + interface_deps,
             visibility = ["//visibility:private"],
         )
     _st_binary_provider_fusion(

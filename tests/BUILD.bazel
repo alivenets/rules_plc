@@ -83,6 +83,45 @@ st_library(
     ],
 )
 
+# interface_deps: source-visible only. This façade's StInfo carries leaf's
+# srcs (for cross-library type resolution at compile time) but does NOT
+# carry leaf's compiled object, so a downstream link doesn't pull it in.
+# Used by the corresponding analysis test in rules_test.bzl.
+st_library(
+    name = "leaf_interface_facade",
+    interface_deps = [":leaf"],
+)
+
+# A concrete st_library with its own srcs plus a mix of deps and
+# interface_deps -- exercises the semantics on a non-façade library.
+st_library(
+    name = "middle_with_interface_leaf",
+    srcs = ["middle.st"],
+    interface_deps = [":leaf"],
+)
+
+# Regression: a regular dep's interface_sources bucket must propagate
+# through transitively, so a downstream packaging rule enumerating
+# `sources` still filters out the vendor interfaces however deep in the
+# graph they live. Chain: leaf --(interface_deps)--> middle_with_interface_leaf
+# --(deps)--> top_over_interface_leaf.
+st_library(
+    name = "top_over_interface_leaf",
+    srcs = ["top.st"],
+    deps = [":middle_with_interface_leaf"],
+)
+
+# An st_binary that pulls leaf's sources through interface_deps only --
+# the StLink action's argv must NOT include leaf_lib.o (the interface_dep
+# is source-visible-only; its real impl would come from cc_deps). Uses
+# no_program_main.st, which does not itself call into leaf, so the link
+# stays satisfied even without leaf's object.
+st_binary(
+    name = "interface_dep_binary",
+    srcs = ["no_program_main.st"],
+    interface_deps = [":leaf"],
+)
+
 # A minimal st_binary purely to exercise st_binary's own StLink action/flags
 # (see rules_test.bzl) -- unrelated to the st_library CcInfo-export coverage
 # above, which now uses cc_test instead.
