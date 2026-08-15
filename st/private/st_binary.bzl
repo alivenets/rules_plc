@@ -4,7 +4,14 @@ load("@rules_cc//cc:find_cc_toolchain.bzl", "find_cc_toolchain", "use_cc_toolcha
 load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
 load("//st:private/st_headers.bzl", "st_library_headers_gen")
-load("//st:providers.bzl", "StHeadersInfo", "StInfo", "merge_st_infos")
+load(
+    "//st:providers.bzl",
+    "StHeadersInfo",
+    "StInfo",
+    "create_st_compilation_context",
+    "create_st_linking_context",
+    "merge_st_infos",
+)
 
 _MAIN_WRAPPER_TEMPLATE = """FUNCTION main : DINT
 VAR
@@ -239,6 +246,24 @@ touch {marker}
 
     exported_cc_info = cc_common.merge_cc_infos(cc_infos = own_cc_infos + cc_dep_cc_infos)
 
+    # Also expose an StInfo, mirroring st_library, so an st_binary can
+    # feed another st_binary/st_library's `deps` -- carrying its own
+    # non-program srcs (which double as their interface, same as
+    # st_library) and its own compiled POU object plus every dep's,
+    # minus the entry-point wrapper (which defines `main` and must not
+    # leak into a downstream link).
+    st_info = StInfo(
+        compilation_context = create_st_compilation_context(
+            sources = depset(ctx.files.srcs, transitive = [dep_sources]),
+        ),
+        linking_context = create_st_linking_context(
+            objects = depset(
+                [pou_object] if pou_object else [],
+                transitive = [dep_info.linking_context.objects],
+            ),
+        ),
+    )
+
     return [
         DefaultInfo(
             executable = out,
@@ -247,6 +272,7 @@ touch {marker}
         ),
         OutputGroupInfo(_validation = depset(validation_outputs)),
         exported_cc_info,
+        st_info,
     ]
 
 _COMMON_ATTRS = {
@@ -299,6 +325,7 @@ def _st_binary_provider_fusion_impl(ctx):
             runfiles = binary_default_info.default_runfiles,
         ),
         binary_target[OutputGroupInfo],
+        binary_target[StInfo],
     ]
     if headers_target != None:
         providers.append(headers_target[StHeadersInfo])
@@ -314,7 +341,7 @@ _st_binary_provider_fusion = rule(
     implementation = _st_binary_provider_fusion_impl,
     executable = True,
     attrs = {
-        "binary": attr.label(mandatory = True, executable = True, cfg = "target", providers = [CcInfo]),
+        "binary": attr.label(mandatory = True, executable = True, cfg = "target", providers = [CcInfo, StInfo]),
         "headers": attr.label(providers = [CcInfo, StHeadersInfo]),
     },
     doc = "Combines an st_binary with its generated headers (if any) into one target, forwarding the binary's own DefaultInfo (so the fused target stays runnable/testable) and OutputGroupInfo (so its _validation actions -- e.g. StValidateProgram -- still run). Internal -- use the public st_binary macro below.",
