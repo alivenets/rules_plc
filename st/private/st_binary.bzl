@@ -78,7 +78,28 @@ def _collect_cc_link_files(cc_infos):
                     files.append(lib.dynamic_library)
     return files
 
-def _link(ctx, toolchain, own_objects, cc_link_files):
+def _collect_cc_user_link_flags(cc_infos):
+    """Collect link flags from the dependencies.
+
+    Flattens `cc_infos` into linker flags (e.g. `-lm`) to forward to
+    plc's link step via `--linker-arg`.
+
+    plc's linker driver hands each `--linker-arg=<flag>` verbatim to
+    ld.lld, so cc_library(linkopts=[...]) reaches the actual linker
+    without translation. Deduped by identity, preserving order.
+    """
+    seen = {}
+    flags = []
+    for cc_info in cc_infos:
+        for linker_input in cc_info.linking_context.linker_inputs.to_list():
+            for flag in linker_input.user_link_flags:
+                if flag in seen:
+                    continue
+                seen[flag] = True
+                flags.append(flag)
+    return flags
+
+def _link(ctx, toolchain, own_objects, cc_link_files, cc_user_link_flags):
     dep_info = merge_st_infos([dep[StInfo] for dep in ctx.attr.deps])
     dep_objects = dep_info.linking_context.objects
 
@@ -110,6 +131,8 @@ def _link(ctx, toolchain, own_objects, cc_link_files):
     args.add("-o", out)
     args.add("--linker", toolchain.linker.path)
     args.add("--fuse-ld", "lld")
+    for flag in cc_user_link_flags:
+        args.add("--linker-arg=" + flag)
 
     ctx.actions.run(
         executable = toolchain.compiler,
@@ -229,8 +252,9 @@ touch {marker}
 
     cc_dep_cc_infos = [dep[CcInfo] for dep in ctx.attr.cc_deps]
     cc_link_files = _collect_cc_link_files(cc_dep_cc_infos)
+    cc_user_link_flags = _collect_cc_user_link_flags(cc_dep_cc_infos)
 
-    out = _link(ctx, toolchain, own_objects, cc_link_files)
+    out = _link(ctx, toolchain, own_objects, cc_link_files, cc_user_link_flags)
 
     # Export a plain CcInfo constructed from StInfo linking contexts of
     # `deps`, so linking a `st_binary` against `st_library` uses the ST
